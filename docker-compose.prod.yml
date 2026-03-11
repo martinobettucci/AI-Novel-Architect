@@ -1,0 +1,12 @@
+services:
+  app:
+    container_name: ai-novel-architect-prod
+    build:
+      context: .
+      target: prod
+    environment:
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://192.168.0.37:11434}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-oss:20b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "${APP_PORT:-3000}:3000"

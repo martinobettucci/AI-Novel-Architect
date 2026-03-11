@@ -1,54 +1,44 @@
-import Link from "next/link";
+"use client";
 
-interface TopNavProps {
-  active?: "projects" | "library" | "admin";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import LanguageSwitcher from "@/app/components/LanguageSwitcher";
+import { useI18n } from "@/app/i18n/I18nProvider";
+
+function navClass(active: boolean): string {
+  return active
+    ? "rounded-md bg-cyan-100 px-3 py-1.5 text-sm font-semibold text-cyan-900"
+    : "rounded-md px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100";
 }
 
-export default function TopNav({ active }: TopNavProps) {
-  return (
-    <header className="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-4">
-      <div className="max-w-5xl mx-auto flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center">
-            <span className="text-white text-sm font-bold">A</span>
-          </div>
-          <span className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-            AI Novel Architect
-          </span>
-        </Link>
+export default function TopNav() {
+  const pathname = usePathname();
+  const { t } = useI18n();
 
-        <nav className="flex items-center gap-6 text-sm">
-          <Link
-            href="/"
-            className={
-              active === "projects"
-                ? "font-medium text-violet-600"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-            }
-          >
-            Mes Projets
+  const dashboardActive = pathname === "/";
+  const settingsActive = pathname.startsWith("/settings") || pathname.startsWith("/admin");
+
+  return (
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-4">
+          <Link href="/" className="text-lg font-black tracking-tight text-slate-900">
+            {t("app.title")}
           </Link>
-          <Link
-            href="/library"
-            className={
-              active === "library"
-                ? "font-medium text-violet-600"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors"
-            }
-          >
-            Bibliothèque
-          </Link>
-          <Link
-            href="/admin"
-            className={
-              active === "admin"
-                ? "font-medium text-violet-600"
-                : "text-slate-500 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors text-xs"
-            }
-          >
-            Admin
-          </Link>
-        </nav>
+          <nav className="hidden items-center gap-1 sm:flex">
+            <Link href="/" className={navClass(dashboardActive)}>
+              {t("nav.dashboard")}
+            </Link>
+            <Link href="/settings" className={navClass(settingsActive)}>
+              {t("nav.settings")}
+            </Link>
+          </nav>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <LanguageSwitcher mode="ui" />
+          <LanguageSwitcher />
+        </div>
       </div>
     </header>
   );

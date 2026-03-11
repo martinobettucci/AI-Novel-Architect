@@ -1,0 +1,123 @@
+## AI Novel Architect — Full Local-First “Everything Included” Release Plan
+
+### Summary
+- Rebuild the current draft into a complete solo-author platform with no placeholder states, no mock flows, and no unfinished screens.
+- Keep architecture `local-first solo` with IndexedDB persistence, manual backup/import packs, and installable offline PWA behavior.
+- Ship in a single release branch, but implement in a fixed internal sequence to reduce risk.
+- Implement full scope: authoring, planning, AI assistance, revision, publishing prep, and marketing content generation.
+- Enforce `unit tests for every feature` as requested (no integration/E2E layer in this release).
+
+### Complete User Story Set
+- `US-01` As an author, I can create a project from idea, detailed outline, template, or import.
+- `US-02` As an author, I can configure language (French default, English optional) globally and per project.
+- `US-03` As an author, I can define project metadata (title, genre, audience, tone, target word count).
+- `US-04` As an author, I can duplicate/archive/delete projects.
+- `US-05` As an author, I can restore a project from a local backup pack.
+- `US-06` As an author, I can build a story bible (premise, themes, stakes, world rules).
+- `US-07` As an author, I can manage character sheets with arcs, motivations, voice, and relationships.
+- `US-08` As an author, I can manage locations, lore, timeline events, and glossary entries.
+- `US-09` As an author, I can structure acts, chapters, and scenes with drag-drop reordering.
+- `US-10` As an author, I can set per-chapter objectives, hooks, pacing targets, and status.
+- `US-11` As an author, I can view continuity conflicts across characters, timeline, and world rules.
+- `US-12` As an author, I can run AI planning/audit suggestions and accept/reject via preview diff.
+- `US-13` As an author, I can write chapter content in a rich text editor with scene-aware navigation.
+- `US-14` As an author, I can use focus mode, reading mode, and distraction-free writing.
+- `US-15` As an author, I can set writing goals (daily/session/chapter) and see progress analytics.
+- `US-16` As an author, I can search/replace across the full manuscript.
+- `US-17` As an author, I can comment, annotate, and tag passages for later revision.
+- `US-18` As an author, I can use undo/redo and recover from autosaved snapshots.
+- `US-19` As an author, I can compare versions and restore selected fragments.
+- `US-20` As an author, I can manage scene cards and convert card notes into draft text.
+- `US-21` As an author, I can configure AI providers and models (OpenAI-compatible, provider-agnostic).
+- `US-22` As an author, I can tune AI behavior globally, per project, and per feature action.
+- `US-23` As an author, I can run AI actions: brainstorm, expand, rewrite, summarize, continue, dialogue polish.
+- `US-24` As an author, I can run style transformation by selected ghostwriter profile.
+- `US-25` As an author, I can run consistency checks (character, plot, timeline, tone).
+- `US-26` As an author, I can apply AI edits only after diff preview (default safety mode).
+- `US-27` As an author, I can inspect AI action logs (prompt metadata, model, timestamp, token usage if available).
+- `US-28` As an author, I can execute revision passes (developmental, line edit, copy edit).
+- `US-29` As an author, I can track issues with statuses (open, in progress, resolved).
+- `US-30` As an author, I can run chapter quality scoring with configurable rubric weights.
+- `US-31` As an author, I can receive grammar/style suggestions and accept selectively.
+- `US-32` As an author, I can build custom checklists and enforce completion before export.
+- `US-33` As an author, I can lock sections from AI rewriting when needed.
+- `US-34` As an author, I can export manuscript to Markdown and JSON.
+- `US-35` As an author, I can import Markdown, TXT, and JSON into structured project data.
+- `US-36` As an author, I can generate publishing-ready package artifacts (synopsis variants, metadata sheet, chapter manifest).
+- `US-37` As an author, I can generate marketing content (blurb, tagline, pitch variants, social snippets, email draft).
+- `US-38` As an author, I can generate cover-brief prompts and visual direction notes.
+- `US-39` As an author, I can use launch checklist templates and customize them.
+- `US-40` As an author, I can manage configuration precedence: run override > feature > project > global > defaults.
+- `US-41` As an author, I can reset only selected settings domains without losing project content.
+- `US-42` As an author, I can inspect offline/online state and queued AI tasks.
+- `US-43` As an author, I can install the app as PWA and continue local work offline.
+- `US-44` As an author, I can recover safely from interrupted AI operations.
+- `US-45` As an author, I can use keyboard shortcuts for major authoring workflows.
+- `US-46` As an author, I can use accessible UI with full keyboard/ARIA support.
+- `US-47` As an author, I can use responsive UI on desktop and mobile.
+- `US-48` As an author, I never see mock placeholders or fake progress simulations.
+- `US-49` As an author, I can switch UI language between French and English.
+- `US-50` As an author, I can view the app in dark mode and light mode with consistent styling.
+- `US-51` As an author, I can visualize and structure progression of writing goals with analytics dashboards.
+- `US-52` As an author, I can manage multiple projects and switch between them seamlessly.
+- `US-53` As an author, I can view progression of each actor, chapter, location, lore and scene how they have evolved over the course of the chapter/story development (at the level of the story bible and per chapter/scene).
+- `US-54` As an author, I can track at the scene level and the bible level the consistency of the characters, locations, lore and timeline with the story development and receive AI suggestions to fix inconsistencies.
+- `US-55` As an author, I can manage the relationships between characters and track their evolution over the course of the story development.
+- `US-56` As an author, I can manage the relationships between characters and locations and track their evolution over the course of the story development.
+- `US-57` As an author, I can manage the relationships between characters and lore and track their evolution over the course of the story development.
+- `US-58` As an author, I can manage the relationships between characters and timeline events and track their evolution over the course of the story development.
+- `US-59` As an author, I can manage the relationships between locations and lore and track their evolution over the course of the story development.
+- `US-60` As an author, I can manage the relationships between locations and timeline events and track their evolution over the course of the story development.
+- `US-61` As an author, I can manage the relationships between lore and timeline events and track their evolution over the course of the story development.
+- `US-62` As an author, I can manage the relationships between characters, locations, lore and timeline events and track their evolution over the course of the story development.
+- `US-63` As an author, I can manage the relationships between characters, locations, lore and timeline events and track their evolution over the course of the chapter/scene development.
+- `US-64` As an author, I can manage the relationships between characters, locations, lore and timeline events and track their evolution over the course of the chapter/scene development and receive AI suggestions to fix inconsistencies.
+- `US-65` As an author, I can manage the inventory, their knowledge of the events from their point of view, and their relationships with other actors, locations, lore and timeline events and track their evolution over the course of the story development.
+- `US-66` As an author, I can manage the narration status of every location (open, closed, burned down, destroyed, in construction, locked, in the past, ....) and track their evolution over the course of the story development.
+- `US-67` As an author, I can use AI to autocomplete any existing passage, character profile, location description, lore entry or timeline event with a single click and receive suggestions in a preview diff before applying.
+- `US-68` As an author, I can use AI to rewrite any existing passage, character profile, location description, lore entry or timeline event with a single click and receive suggestions in a preview diff before applying.
+- `US-69` As an author, I can use AI to expand any existing passage, character profile, location description, lore entry or timeline event with a single click and receive suggestions in a preview diff before applying.
+
+### Implementation Changes (Decision-Complete)
+- Replace current schema with a versioned local domain model: `Project`, `Manuscript`, `Chapter`, `Scene`, `StoryBible`, `CharacterProfile`, `TimelineEvent`, `RevisionIssue`, `Snapshot`, `AiAction`, `SettingsProfile`.
+- Apply `hard reset` migration policy: initialize new DB version, drop legacy seed/mocks, no compatibility migration path.
+- Replace existing IndexedDB service with a typed repository layer (Dexie-based), plus domain stores (Zustand) and selectors.
+- Replace current draft editor with a rich text stack (TipTap) and structured outline sidebar synchronized to chapters/scenes.
+- Remove fake generation timer and mock chapter generation; all creation/audit/rewrite flows must call real domain logic.
+- Replace current plan/audit panels with reusable AI action framework and preview-diff apply pipeline.
+- Replace ad-hoc API routes with unified provider-agnostic AI routes:
+- `GET /api/ai/health`
+- `GET /api/ai/models`
+- `POST /api/ai/run` (action-based payload, structured result envelope, normalized errors)
+- Add import/export module for `Markdown/TXT/JSON`, and backup packs as compressed JSON bundle with checksums.
+- Add publishing prep module (local artifacts only, no external platform API integration).
+- Add marketing module (copy generation templates and configurable prompt packs).
+- Add full i18n infrastructure (French default, English bundle) for UI labels, system messages, and prompt templates.
+- Add configuration engine with three scopes (`global`, `project`, `feature`) and deterministic precedence resolution.
+- Convert admin page to complete settings/control center: providers, models, prompt presets, QA rules, backup actions.
+- Add PWA support (manifest, service worker, offline shell, cache strategy for static assets and local data safety).
+- Full UX redesign across routes with consistent IA: Dashboard, Project Workspace, Story Bible, Drafting, Revision, Publish, Marketing, Settings.
+
+### Test Plan (Unit-Only, Mandatory Per Feature)
+- Stack: `Vitest + React Testing Library + jsdom + MSW + fake-indexeddb`.
+- Coverage gate: `95% statements/functions`, `90% branches` minimum per package; no merge without passing gates.
+- One required unit test suite per user story ID (`US-01` … `US-48`) plus domain-model invariants.
+- Repository/service tests: CRUD, transactions, snapshot/restore, import parsers, export serializers, config precedence.
+- Editor unit tests: formatting commands, selection behavior, outline sync, autosave debounce, undo/redo safety.
+- AI unit tests: request builder, provider adapters, response parser, diff generator, apply/reject workflows, error normalization.
+- Revision unit tests: rubric scoring, issue lifecycle, checklist enforcement, locked-section behavior.
+- Publishing/marketing unit tests: template rendering, artifact composition, language variants, deterministic token interpolation.
+- i18n unit tests: key coverage checks, fallback behavior, locale switch persistence.
+- Accessibility unit tests: keyboard navigation, ARIA role/state assertions on all interactive components.
+- Regression policy: every bug fix adds a failing test first, then implementation.
+
+### Assumptions and Defaults
+- Architecture remains `local-first solo`; no user accounts and no collaboration features.
+- Release includes full authoring + publishing prep + marketing modules in one delivery.
+- No direct third-party publishing API integrations in this release.
+- Export formats are `Markdown + JSON`; import formats are `Markdown + TXT + JSON`.
+- Existing draft local data is not preserved due chosen `hard reset` migration policy.
+- AI edits default to `preview then apply`; direct blind-apply mode is not default.
+- English language support is included but secondary to French default.
+- PWA support is focused on offline authoring; no sync or cloud backup features in this release.
+- Unit tests are mandatory for every user story; no integration or E2E tests in this release scope. 
