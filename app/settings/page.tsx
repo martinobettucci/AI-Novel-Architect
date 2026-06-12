@@ -36,7 +36,9 @@ export default function SettingsPage() {
   const resetScope = useSettingsStore((state) => state.resetScope);
 
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,48 +46,65 @@ export default function SettingsPage() {
     void loadSettings();
   }, [loadSettings, refreshProjects]);
 
-  async function checkHealth() {
-    const res = await fetch("/api/ai/health", {
-      cache: "no-store",
-      headers: {
-        "x-openai-base-url": resolved.settings.llm.baseUrl,
-        "x-openai-model": resolved.settings.llm.model,
-        ...(resolved.settings.llm.apiKey
-          ? { "x-openai-api-key": resolved.settings.llm.apiKey }
-          : {}),
-      },
-    });
+  function llmHeaders(): Record<string, string> {
+    return {
+      "x-openai-base-url": resolved.settings.llm.baseUrl,
+      "x-openai-model": resolved.settings.llm.model,
+      ...(resolved.settings.llm.apiKey
+        ? { "x-openai-api-key": resolved.settings.llm.apiKey }
+        : {}),
+    };
+  }
 
-    const payload = (await res.json()) as HealthResponse;
-    setHealth(payload);
+  async function checkHealth() {
+    setHealthLoading(true);
+    try {
+      const res = await fetch("/api/ai/health", {
+        cache: "no-store",
+        headers: llmHeaders(),
+      });
+      const payload = (await res.json()) as HealthResponse;
+      setHealth(payload);
+    } catch (error) {
+      setHealth({
+        status: "error",
+        error: error instanceof Error ? error.message : "Health check request failed",
+      });
+    } finally {
+      setHealthLoading(false);
+    }
   }
 
   async function loadModels() {
     setModelsError(null);
-    const res = await fetch("/api/ai/models", {
-      cache: "no-store",
-      headers: {
-        "x-openai-base-url": resolved.settings.llm.baseUrl,
-        "x-openai-model": resolved.settings.llm.model,
-        ...(resolved.settings.llm.apiKey
-          ? { "x-openai-api-key": resolved.settings.llm.apiKey }
-          : {}),
-      },
-    });
+    setModelsLoading(true);
+    try {
+      const res = await fetch("/api/ai/models", {
+        cache: "no-store",
+        headers: llmHeaders(),
+      });
 
-    const payload = (await res.json()) as ModelsResponse;
-    if (!res.ok) {
-      setModelsError(payload.error ?? "Could not load models");
+      const payload = (await res.json()) as ModelsResponse;
+      if (!res.ok) {
+        setModelsError(payload.error ?? "Could not load models");
+        setModels([]);
+        return;
+      }
+
+      const availableModels = payload.models
+        .map((model) => model.trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+
+      setModels(availableModels);
+    } catch (error) {
+      setModelsError(
+        error instanceof Error ? error.message : "Could not reach the models endpoint"
+      );
       setModels([]);
-      return;
+    } finally {
+      setModelsLoading(false);
     }
-
-    const availableModels = payload.models
-      .map((model) => model.trim())
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b));
-
-    setModels(availableModels);
   }
 
   return (
@@ -159,6 +178,8 @@ export default function SettingsPage() {
               <label className="grid gap-1 text-sm text-slate-700">
                 API key
                 <input
+                  type="password"
+                  autoComplete="off"
                   value={resolved.settings.llm.apiKey ?? ""}
                   onChange={(event) =>
                     void saveScope("global", {
@@ -174,11 +195,19 @@ export default function SettingsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={() => void checkHealth()} className="rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white">
-                Health check
+              <button
+                onClick={() => void checkHealth()}
+                disabled={healthLoading}
+                className="rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                {healthLoading ? "Checking…" : "Health check"}
               </button>
-              <button onClick={() => void loadModels()} className="rounded border border-slate-300 px-3 py-1.5 text-sm">
-                Load models
+              <button
+                onClick={() => void loadModels()}
+                disabled={modelsLoading}
+                className="rounded border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-40"
+              >
+                {modelsLoading ? "Loading…" : "Load models"}
               </button>
               <button onClick={() => void resetScope("global")} className="rounded border border-rose-300 px-3 py-1.5 text-sm text-rose-700">
                 Reset global scope

@@ -51,8 +51,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
   saveScope: async (scope, values, projectId, featureKey) => {
-    await saveSettingsProfile(scope, values, projectId, featureKey);
-    await get().load(projectId, featureKey);
+    // Optimistic merge: the UI always passes complete domain objects, so a
+    // shallow domain-level spread matches what resolution would produce.
+    // Reloading on every keystroke made inputs lose characters.
+    set((state) => ({
+      resolved: {
+        ...state.resolved,
+        settings: { ...state.resolved.settings, ...values },
+      },
+      globalSettings:
+        scope === "global" ? { ...state.globalSettings, ...values } : state.globalSettings,
+      uiLocale: scope === "global" && values.uiLocale ? values.uiLocale : state.uiLocale,
+      error: null,
+    }));
+    try {
+      await saveSettingsProfile(scope, values, projectId, featureKey);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to save settings" });
+      await get().load(projectId, featureKey);
+    }
   },
   resetScope: async (scope, projectId, featureKey) => {
     await resetSettingsDomain(scope, projectId, featureKey);

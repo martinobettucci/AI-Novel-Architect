@@ -4313,6 +4313,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 <label className="grid gap-1 text-sm text-slate-700">
                   API key (optional)
                   <input
+                    type="password"
+                    autoComplete="off"
                     value={resolved.settings.llm.apiKey ?? ""}
                     onChange={(event) =>
                       void saveScope(
