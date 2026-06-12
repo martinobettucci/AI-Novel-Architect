@@ -240,6 +240,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const deleteChecklistItem = useProjectStore((state) => state.deleteChecklistItem);
   const saveAnnotation = useProjectStore((state) => state.saveAnnotation);
   const deleteAnnotation = useProjectStore((state) => state.deleteAnnotation);
+  const saveGoal = useProjectStore((state) => state.saveGoal);
   const createSnapshot = useProjectStore((state) => state.createSnapshot);
   const restoreSnapshot = useProjectStore((state) => state.restoreSnapshot);
   const exportActiveProjectJson = useProjectStore((state) => state.exportActiveProjectJson);
@@ -545,6 +546,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const pendingAiCount = useMemo(() => {
     if (!activeProject) return 0;
     return activeProject.aiActions.filter((action) => action.status === "pending").length;
+  }, [activeProject]);
+
+  const manuscriptWordCount = useMemo(() => {
+    if (!activeProject) return 0;
+    return activeProject.chapters.reduce((sum, chapter) => sum + chapter.wordCountCurrent, 0);
   }, [activeProject]);
 
   const chapterScore = useMemo(() => {
@@ -2021,6 +2027,123 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   ))}
                 </ul>
               )}
+            </article>
+
+            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+              <h2 className="text-xl font-semibold text-slate-900">Writing goals & progress</h2>
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                <div>
+                  <div className="flex items-center justify-between text-sm text-slate-700">
+                    <span>Manuscript progress</span>
+                    <span className="font-semibold">
+                      {manuscriptWordCount.toLocaleString()} / {project.targetWordCount.toLocaleString()} words
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={project.targetWordCount}
+                    aria-valuenow={Math.min(manuscriptWordCount, project.targetWordCount)}
+                    className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100"
+                  >
+                    <div
+                      className="h-full rounded-full bg-teal-600"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          project.targetWordCount > 0
+                            ? Math.round((manuscriptWordCount / project.targetWordCount) * 100)
+                            : 0
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  {selectedChapter && (
+                    <>
+                      <div className="mt-4 flex items-center justify-between text-sm text-slate-700">
+                        <span>{chapterLabel(selectedChapter)}</span>
+                        <span className="font-semibold">
+                          {selectedChapter.wordCountCurrent.toLocaleString()} /{" "}
+                          {(selectedChapter.wordCountTarget || activeProject.goal.chapterWords).toLocaleString()}{" "}
+                          words
+                        </span>
+                      </div>
+                      <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-teal-600"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              (selectedChapter.wordCountTarget || activeProject.goal.chapterWords) > 0
+                                ? Math.round(
+                                    (selectedChapter.wordCountCurrent /
+                                      (selectedChapter.wordCountTarget ||
+                                        activeProject.goal.chapterWords)) *
+                                      100
+                                  )
+                                : 0
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="grid gap-2 self-start rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Targets
+                  </p>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Daily words
+                    <input
+                      type="number"
+                      min={0}
+                      value={activeProject.goal.dailyWords}
+                      onChange={(event) =>
+                        void saveGoal({
+                          ...activeProject.goal,
+                          dailyWords: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                      className="rounded border border-slate-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Session words
+                    <input
+                      type="number"
+                      min={0}
+                      value={activeProject.goal.sessionWords}
+                      onChange={(event) =>
+                        void saveGoal({
+                          ...activeProject.goal,
+                          sessionWords: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                      className="rounded border border-slate-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Default chapter words
+                    <input
+                      type="number"
+                      min={0}
+                      value={activeProject.goal.chapterWords}
+                      onChange={(event) =>
+                        void saveGoal({
+                          ...activeProject.goal,
+                          chapterWords: Math.max(0, Number(event.target.value) || 0),
+                        })
+                      }
+                      className="rounded border border-slate-300 px-2 py-1"
+                    />
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    The chapter bar uses the chapter word target when set, otherwise the default
+                    chapter goal.
+                  </p>
+                </div>
+              </div>
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
