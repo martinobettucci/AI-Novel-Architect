@@ -3,7 +3,7 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import TopNav from "@/app/components/TopNav";
 import type {
@@ -62,6 +62,7 @@ import {
   buildStoryWorldSuggestionContext,
   buildStoryWorldSuggestionInput,
   parseStoryWorldSuggestion,
+  type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
 import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
 import type { DiffChunk } from "@/app/lib/ai/diff";
@@ -203,6 +204,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const { t } = useI18n();
 
   const activeProject = useProjectStore((state) => state.activeProject);
+  const storeError = useProjectStore((state) => state.error);
   const openProject = useProjectStore((state) => state.openProject);
   const saveProjectMeta = useProjectStore((state) => state.saveProjectMeta);
   const saveStoryBible = useProjectStore((state) => state.saveStoryBible);
@@ -293,6 +295,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [sceneDraftAiSceneId, setSceneDraftAiSceneId] = useState<string | null>(null);
   const [sceneDraftAiError, setSceneDraftAiError] = useState<string | null>(null);
   const [sceneDraftAiMessage, setSceneDraftAiMessage] = useState<string | null>(null);
+  const [searchReplaceMessage, setSearchReplaceMessage] = useState<string | null>(null);
+  const [storyBiblePreview, setStoryBiblePreview] = useState<ReturnType<
+    typeof parseStoryBibleSuggestion
+  > | null>(null);
+  const [storyWorldPreview, setStoryWorldPreview] = useState<StoryWorldSuggestion | null>(null);
+  const [chapterDetailsPreview, setChapterDetailsPreview] = useState<ReturnType<
+    typeof parseChapterDetailsSuggestion
+  > | null>(null);
+  const [sceneCardsPreview, setSceneCardsPreview] = useState<ReturnType<
+    typeof parseSceneCardSuggestions
+  > | null>(null);
+  const [sceneDraftPreview, setSceneDraftPreview] = useState<{
+    sceneId: string;
+    text: string;
+  } | null>(null);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false
   );
@@ -337,9 +354,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }, [activeProject, selectedChapterId]);
 
   useEffect(() => {
+    // Chapter-scoped AI previews must never survive a chapter switch, or a
+    // proposal computed for one chapter could be applied to another.
     setChapterDraftPreview("");
     setChapterDraftAiError(null);
     setChapterDraftAiMessage(null);
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiError(null);
+    setChapterDetailsAiMessage(null);
+    setSceneCardsPreview(null);
+    setSceneCardsAiError(null);
+    setSceneCardsAiMessage(null);
+    setSceneDraftPreview(null);
+    setSceneDraftAiError(null);
+    setSceneDraftAiMessage(null);
   }, [selectedChapter?.id]);
 
   const selectedScenes = useMemo(() => {
@@ -532,6 +560,27 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     return buildGrammarSuggestions(selectedChapter.content);
   }, [selectedChapter]);
 
+  // The editor save flow is ref-based: TipTap's onUpdate closure is created
+  // once, so reading selectedChapter directly would save typed content into
+  // whichever chapter was selected when the editor mounted.
+  const selectedChapterRef = useRef<Chapter | null>(null);
+  selectedChapterRef.current = selectedChapter;
+  const editorChapterIdRef = useRef<string | null>(null);
+  const pendingEditorSaveRef = useRef<{ chapter: Chapter; content: string } | null>(null);
+  const editorSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPendingEditorSave = useCallback(() => {
+    if (editorSaveTimerRef.current) {
+      clearTimeout(editorSaveTimerRef.current);
+      editorSaveTimerRef.current = null;
+    }
+    const pending = pendingEditorSaveRef.current;
+    pendingEditorSaveRef.current = null;
+    if (pending) {
+      void saveChapter({ ...pending.chapter, content: pending.content });
+    }
+  }, [saveChapter]);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -544,35 +593,56 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     content: selectedChapter?.content ?? "",
     editable: !readingMode,
     onUpdate: ({ editor: instance }) => {
-      if (!selectedChapter || readingMode) return;
-      const content = instance.getHTML();
-      void saveChapter({
-        ...selectedChapter,
-        content,
-      });
+      const chapter = selectedChapterRef.current;
+      if (!chapter || !instance.isEditable) return;
+      pendingEditorSaveRef.current = { chapter, content: instance.getHTML() };
+      if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
+      editorSaveTimerRef.current = setTimeout(flushPendingEditorSave, 500);
     },
   });
 
+  const setEditorContent = useCallback(
+    (content: string) => {
+      if (!editor) return;
+      editor.commands.setContent(content || "", { emitUpdate: false });
+    },
+    [editor]
+  );
+
   useEffect(() => {
     if (!editor || !selectedChapter) return;
-    const current = editor.getHTML();
-    if (current !== selectedChapter.content) {
-      editor.commands.setContent(selectedChapter.content || "", {
-        emitUpdate: false,
-      });
+    if (editorChapterIdRef.current !== selectedChapter.id) {
+      // Save any pending edits of the previous chapter before loading the new
+      // one, so fast chapter switches never mix contents.
+      flushPendingEditorSave();
+      editorChapterIdRef.current = selectedChapter.id;
+      setEditorContent(selectedChapter.content);
+    } else if (
+      !pendingEditorSaveRef.current &&
+      editor.getHTML() !== selectedChapter.content &&
+      !editor.isFocused
+    ) {
+      // External content change (AI apply, snapshot restore, search/replace).
+      setEditorContent(selectedChapter.content);
     }
     editor.setEditable(!readingMode);
-  }, [editor, readingMode, selectedChapter]);
+  }, [editor, flushPendingEditorSave, readingMode, selectedChapter, setEditorContent]);
+
+  // Persist any pending edit when the workspace unmounts.
+  useEffect(() => flushPendingEditorSave, [flushPendingEditorSave]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
-      if (!command || !selectedChapter) return;
+      const chapter = selectedChapterRef.current;
+      if (!command || !chapter) return;
 
       if (event.key.toLowerCase() === "s") {
         event.preventDefault();
         if (!editor) return;
-        void saveChapter({ ...selectedChapter, content: editor.getHTML() });
+        pendingEditorSaveRef.current = null;
+        if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
+        void saveChapter({ ...chapter, content: editor.getHTML() });
       }
 
       if (event.key.toLowerCase() === "f") {
@@ -588,7 +658,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editor, saveChapter, selectedChapter]);
+  }, [editor, saveChapter]);
 
   if (!project || !activeProject) {
     return (
@@ -604,14 +674,32 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     const bundle = activeProject;
     if (!bundle) return;
 
+    flushPendingEditorSave();
+    let replacedCount = 0;
+    let chapterCount = 0;
+
     for (const chapter of bundle.chapters) {
-      if (!chapter.content.includes(searchText)) continue;
-      const nextContent = chapter.content.split(searchText).join(replaceText);
+      const source =
+        chapter.id === selectedChapter?.id && editor ? editor.getHTML() : chapter.content;
+      if (!source.includes(searchText)) continue;
+      const occurrences = source.split(searchText).length - 1;
+      const nextContent = source.split(searchText).join(replaceText);
       await saveChapter({
         ...chapter,
         content: nextContent,
       });
+      if (chapter.id === selectedChapter?.id) {
+        setEditorContent(nextContent);
+      }
+      replacedCount += occurrences;
+      chapterCount += 1;
     }
+
+    setSearchReplaceMessage(
+      replacedCount === 0
+        ? `No match found for "${searchText}".`
+        : `Replaced ${replacedCount} occurrence${replacedCount > 1 ? "s" : ""} in ${chapterCount} chapter${chapterCount > 1 ? "s" : ""}.`
+    );
   }
 
   async function runAiPreview() {
@@ -699,6 +787,15 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   async function applyAiDraft() {
     if (!selectedChapter || !aiDraft) return;
+    flushPendingEditorSave();
+    if (selectedChapter.content.trim()) {
+      await createSnapshot(
+        `Before AI apply ${new Date().toLocaleTimeString()}`,
+        selectedChapter.id,
+        editor?.getHTML() ?? selectedChapter.content
+      );
+    }
+    setEditorContent(aiDraft);
     await saveChapter({
       ...selectedChapter,
       content: aiDraft,
@@ -709,8 +806,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   async function appendSceneToDraft(scene: Scene) {
     if (!selectedChapter) return;
-    const section = `<p><strong>${sceneLabel(scene)}</strong></p><p>${scene.draftText || scene.description}</p>`;
-    const next = `${selectedChapter.content}${section}`;
+    flushPendingEditorSave();
+    const base = editor?.getHTML() ?? selectedChapter.content;
+    const section = `<p><strong>${escapeHtml(sceneLabel(scene))}</strong></p><p>${escapeHtml(scene.draftText || scene.description)}</p>`;
+    const next = `${base}${section}`;
+    setEditorContent(next);
     await saveChapter({ ...selectedChapter, content: next });
   }
 
@@ -787,6 +887,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setStoryBibleAiStatus("running");
     setStoryBibleAiError(null);
     setStoryBibleAiMessage(null);
+    setStoryBiblePreview(null);
 
     try {
       const result = await runAiAction({
@@ -806,14 +907,6 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error("AI response could not be mapped to the Story Bible fields.");
       }
 
-      await saveStoryBible({
-        ...bundle.bible,
-        premise: parsed.premise ?? bundle.bible.premise,
-        themes: parsed.themes ?? bundle.bible.themes,
-        stakes: parsed.stakes ?? bundle.bible.stakes,
-        worldRules: parsed.worldRules ?? bundle.bible.worldRules,
-      });
-
       await logAiAction({
         projectId: projectIdValue,
         action: result.action,
@@ -827,10 +920,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         },
       });
 
-      await openProject(projectIdValue);
+      setStoryBiblePreview(parsed);
       setStoryBibleAiStatus("idle");
       setStoryBibleAiMessage(
-        "Suggestion applied to the story bible fields. Review and edit as needed."
+        "Suggestion ready. Review the proposed fields below, then apply or discard."
       );
     } catch (error) {
       const errorMessage =
@@ -854,6 +947,27 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
+  async function applyStoryBibleSuggestion() {
+    const bundle = activeProject;
+    if (!bundle || !storyBiblePreview) return;
+
+    await saveStoryBible({
+      ...bundle.bible,
+      premise: storyBiblePreview.premise ?? bundle.bible.premise,
+      themes: storyBiblePreview.themes ?? bundle.bible.themes,
+      stakes: storyBiblePreview.stakes ?? bundle.bible.stakes,
+      worldRules: storyBiblePreview.worldRules ?? bundle.bible.worldRules,
+    });
+
+    setStoryBiblePreview(null);
+    setStoryBibleAiMessage("Suggestion applied to the story bible fields.");
+  }
+
+  function discardStoryBibleSuggestion() {
+    setStoryBiblePreview(null);
+    setStoryBibleAiMessage("Suggestion discarded. The story bible was not changed.");
+  }
+
   async function suggestStoryWorldScaffold() {
     const bundle = activeProject;
     if (!bundle) return;
@@ -863,6 +977,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setStoryWorldAiStatus("running");
     setStoryWorldAiError(null);
     setStoryWorldAiMessage(null);
+    setStoryWorldPreview(null);
 
     try {
       const result = await runAiAction({
@@ -883,165 +998,6 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error("AI response could not be mapped to story bible entities.");
       }
 
-      const characterIdsByName = new Map(
-        bundle.characters.map((character) => [normalizeLookupKey(character.name), character.id])
-      );
-      const locationIdsByName = new Map(
-        bundle.locations.map((location) => [normalizeLookupKey(location.name), location.id])
-      );
-      const loreIdsByTitle = new Map(
-        bundle.loreEntries.map((entry) => [normalizeLookupKey(entry.title), entry.id])
-      );
-      const timelineIdsByLabel = new Map(
-        bundle.timeline.map((event) => [normalizeLookupKey(event.label), event.id])
-      );
-      const chapterIdByNumber = new Map(
-        bundle.chapters.map((chapter) => [chapter.number, chapter.id])
-      );
-
-      for (const character of parsed.characters) {
-        const lookupKey = normalizeLookupKey(character.name);
-        const existing =
-          bundle.characters.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
-        const id = existing?.id ?? createId("char");
-
-        await saveCharacter({
-          id,
-          projectId: projectIdValue,
-          name: character.name,
-          role: character.role || existing?.role || "",
-          motivation: character.motivation || existing?.motivation || "",
-          arc: character.arc || existing?.arc || "",
-          voice: character.voice || existing?.voice || "",
-          relationships: character.relationships || existing?.relationships || "",
-          notes: character.notes || existing?.notes || "",
-          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
-        });
-        characterIdsByName.set(lookupKey, id);
-      }
-
-      for (const location of parsed.locations) {
-        const lookupKey = normalizeLookupKey(location.name);
-        const existing =
-          bundle.locations.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
-        const id = existing?.id ?? createId("location");
-
-        await saveLocation({
-          id,
-          projectId: projectIdValue,
-          name: location.name,
-          role: location.role || existing?.role || "",
-          narrativeStatus: location.narrativeStatus || existing?.narrativeStatus || "",
-          description: location.description || existing?.description || "",
-          notes: location.notes || existing?.notes || "",
-          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
-        });
-        locationIdsByName.set(lookupKey, id);
-      }
-
-      for (const entry of parsed.lore) {
-        const lookupKey = normalizeLookupKey(entry.title);
-        const existing =
-          bundle.loreEntries.find((item) => normalizeLookupKey(item.title) === lookupKey) ?? null;
-        const id = existing?.id ?? createId("lore");
-
-        await saveLoreEntry({
-          id,
-          projectId: projectIdValue,
-          title: entry.title,
-          category: entry.category || existing?.category || "",
-          status: entry.status || existing?.status || "",
-          description: entry.description || existing?.description || "",
-          notes: entry.notes || existing?.notes || "",
-          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
-        });
-        loreIdsByTitle.set(lookupKey, id);
-      }
-
-      for (const event of parsed.timeline) {
-        const lookupKey = normalizeLookupKey(event.label);
-        const existing =
-          bundle.timeline.find((item) => normalizeLookupKey(item.label) === lookupKey) ?? null;
-        const id = existing?.id ?? createId("timeline");
-
-        await saveTimelineEventAction({
-          id,
-          projectId: projectIdValue,
-          order:
-            event.order > 0
-              ? event.order
-              : existing?.order ?? bundle.timeline.length + 1,
-          chapterId:
-            (event.chapterNumber != null && chapterIdByNumber.get(event.chapterNumber)) ||
-            existing?.chapterId,
-          label: event.label,
-          details: event.details || existing?.details || "",
-          impact: event.impact || existing?.impact || "",
-          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
-        });
-        timelineIdsByLabel.set(lookupKey, id);
-      }
-
-      const resolveEntityId = (type: NarrativeRelationship["sourceType"], label: string): string => {
-        const lookupKey = normalizeLookupKey(label);
-        switch (type) {
-          case "character":
-            return characterIdsByName.get(lookupKey) ?? "";
-          case "location":
-            return locationIdsByName.get(lookupKey) ?? "";
-          case "lore":
-            return loreIdsByTitle.get(lookupKey) ?? "";
-          case "timeline_event":
-            return timelineIdsByLabel.get(lookupKey) ?? "";
-          default:
-            return "";
-        }
-      };
-
-      const relationshipKey = (relationship: NarrativeRelationship): string =>
-        [
-          relationship.sourceType,
-          relationship.sourceId,
-          relationship.targetType,
-          relationship.targetId,
-          normalizeLookupKey(relationship.relationType),
-        ].join("|");
-
-      const existingRelationshipsByKey = new Map(
-        bundle.relationships.map((relationship) => [relationshipKey(relationship), relationship])
-      );
-
-      for (const relationship of parsed.relationships) {
-        const sourceId = resolveEntityId(relationship.sourceType, relationship.source);
-        const targetId = resolveEntityId(relationship.targetType, relationship.target);
-        if (!sourceId || !targetId) {
-          continue;
-        }
-
-        const candidateKey = [
-          relationship.sourceType,
-          sourceId,
-          relationship.targetType,
-          targetId,
-          normalizeLookupKey(relationship.relationType),
-        ].join("|");
-        const existing = existingRelationshipsByKey.get(candidateKey) ?? null;
-
-        await saveRelationship({
-          id: existing?.id ?? createId("relation"),
-          projectId: projectIdValue,
-          sourceType: relationship.sourceType,
-          sourceId,
-          targetType: relationship.targetType,
-          targetId,
-          relationType: relationship.relationType,
-          status: relationship.status || existing?.status || "",
-          intensity: relationship.intensity || existing?.intensity || 3,
-          notes: relationship.notes || existing?.notes || "",
-          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
-        });
-      }
-
       await logAiAction({
         projectId: projectIdValue,
         action: result.action,
@@ -1060,10 +1016,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         },
       });
 
-      await openProject(projectIdValue);
+      setStoryWorldPreview(parsed);
       setStoryWorldAiStatus("idle");
       setStoryWorldAiMessage(
-        "Tracked entities and relationships were suggested and applied. Review them before drafting forward."
+        "World scaffold ready. Review the proposed entities below, then apply or discard."
       );
     } catch (error) {
       const errorMessage =
@@ -1087,6 +1043,181 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
+  async function applyStoryWorldSuggestion() {
+    const bundle = activeProject;
+    const parsed = storyWorldPreview;
+    if (!bundle || !parsed) return;
+
+    const characterIdsByName = new Map(
+      bundle.characters.map((character) => [normalizeLookupKey(character.name), character.id])
+    );
+    const locationIdsByName = new Map(
+      bundle.locations.map((location) => [normalizeLookupKey(location.name), location.id])
+    );
+    const loreIdsByTitle = new Map(
+      bundle.loreEntries.map((entry) => [normalizeLookupKey(entry.title), entry.id])
+    );
+    const timelineIdsByLabel = new Map(
+      bundle.timeline.map((event) => [normalizeLookupKey(event.label), event.id])
+    );
+    const chapterIdByNumber = new Map(
+      bundle.chapters.map((chapter) => [chapter.number, chapter.id])
+    );
+
+    for (const character of parsed.characters) {
+      const lookupKey = normalizeLookupKey(character.name);
+      const existing =
+        bundle.characters.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("char");
+
+      await saveCharacter({
+        id,
+        projectId: projectIdValue,
+        name: character.name,
+        role: character.role || existing?.role || "",
+        motivation: character.motivation || existing?.motivation || "",
+        arc: character.arc || existing?.arc || "",
+        voice: character.voice || existing?.voice || "",
+        relationships: character.relationships || existing?.relationships || "",
+        notes: character.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      characterIdsByName.set(lookupKey, id);
+    }
+
+    for (const location of parsed.locations) {
+      const lookupKey = normalizeLookupKey(location.name);
+      const existing =
+        bundle.locations.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("location");
+
+      await saveLocation({
+        id,
+        projectId: projectIdValue,
+        name: location.name,
+        role: location.role || existing?.role || "",
+        narrativeStatus: location.narrativeStatus || existing?.narrativeStatus || "",
+        description: location.description || existing?.description || "",
+        notes: location.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      locationIdsByName.set(lookupKey, id);
+    }
+
+    for (const entry of parsed.lore) {
+      const lookupKey = normalizeLookupKey(entry.title);
+      const existing =
+        bundle.loreEntries.find((item) => normalizeLookupKey(item.title) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("lore");
+
+      await saveLoreEntry({
+        id,
+        projectId: projectIdValue,
+        title: entry.title,
+        category: entry.category || existing?.category || "",
+        status: entry.status || existing?.status || "",
+        description: entry.description || existing?.description || "",
+        notes: entry.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      loreIdsByTitle.set(lookupKey, id);
+    }
+
+    for (const event of parsed.timeline) {
+      const lookupKey = normalizeLookupKey(event.label);
+      const existing =
+        bundle.timeline.find((item) => normalizeLookupKey(item.label) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("timeline");
+
+      await saveTimelineEventAction({
+        id,
+        projectId: projectIdValue,
+        order:
+          event.order > 0
+            ? event.order
+            : existing?.order ?? bundle.timeline.length + 1,
+        chapterId:
+          (event.chapterNumber != null && chapterIdByNumber.get(event.chapterNumber)) ||
+          existing?.chapterId,
+        label: event.label,
+        details: event.details || existing?.details || "",
+        impact: event.impact || existing?.impact || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      timelineIdsByLabel.set(lookupKey, id);
+    }
+
+    const resolveEntityId = (type: NarrativeRelationship["sourceType"], label: string): string => {
+      const lookupKey = normalizeLookupKey(label);
+      switch (type) {
+        case "character":
+          return characterIdsByName.get(lookupKey) ?? "";
+        case "location":
+          return locationIdsByName.get(lookupKey) ?? "";
+        case "lore":
+          return loreIdsByTitle.get(lookupKey) ?? "";
+        case "timeline_event":
+          return timelineIdsByLabel.get(lookupKey) ?? "";
+        default:
+          return "";
+      }
+    };
+
+    const relationshipKey = (relationship: NarrativeRelationship): string =>
+      [
+        relationship.sourceType,
+        relationship.sourceId,
+        relationship.targetType,
+        relationship.targetId,
+        normalizeLookupKey(relationship.relationType),
+      ].join("|");
+
+    const existingRelationshipsByKey = new Map(
+      bundle.relationships.map((relationship) => [relationshipKey(relationship), relationship])
+    );
+
+    for (const relationship of parsed.relationships) {
+      const sourceId = resolveEntityId(relationship.sourceType, relationship.source);
+      const targetId = resolveEntityId(relationship.targetType, relationship.target);
+      if (!sourceId || !targetId) {
+        continue;
+      }
+
+      const candidateKey = [
+        relationship.sourceType,
+        sourceId,
+        relationship.targetType,
+        targetId,
+        normalizeLookupKey(relationship.relationType),
+      ].join("|");
+      const existing = existingRelationshipsByKey.get(candidateKey) ?? null;
+
+      await saveRelationship({
+        id: existing?.id ?? createId("relation"),
+        projectId: projectIdValue,
+        sourceType: relationship.sourceType,
+        sourceId,
+        targetType: relationship.targetType,
+        targetId,
+        relationType: relationship.relationType,
+        status: relationship.status || existing?.status || "",
+        intensity: relationship.intensity || existing?.intensity || 3,
+        notes: relationship.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+    }
+
+    setStoryWorldPreview(null);
+    setStoryWorldAiMessage(
+      "Tracked entities and relationships were applied. Review them before drafting forward."
+    );
+  }
+
+  function discardStoryWorldSuggestion() {
+    setStoryWorldPreview(null);
+    setStoryWorldAiMessage("World scaffold discarded. No entities were changed.");
+  }
+
   async function autocompleteSelectedChapterDetails() {
     if (!activeProject || !selectedChapter) return;
 
@@ -1095,6 +1226,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setChapterDetailsAiStatus("running");
     setChapterDetailsAiError(null);
     setChapterDetailsAiMessage(null);
+    setChapterDetailsPreview(null);
 
     try {
       const result = await runAiAction({
@@ -1115,15 +1247,6 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         throw new Error("AI response could not be mapped to the selected chapter fields.");
       }
 
-      await saveChapter({
-        ...selectedChapter,
-        title: parsed.title ?? selectedChapter.title,
-        summary: parsed.summary ?? selectedChapter.summary,
-        objectives: parsed.objectives ?? selectedChapter.objectives,
-        hook: parsed.hook ?? selectedChapter.hook,
-        storySoFar: parsed.storySoFar ?? selectedChapter.storySoFar,
-      });
-
       await logAiAction({
         projectId: projectIdValue,
         chapterId: selectedChapter.id,
@@ -1139,10 +1262,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         },
       });
 
-      await openProject(projectIdValue);
+      setChapterDetailsPreview(parsed);
       setChapterDetailsAiStatus("idle");
       setChapterDetailsAiMessage(
-        "Autocomplete applied to the selected chapter details. Review and refine as needed."
+        "Autocomplete ready. Review the proposed chapter details, then apply or discard."
       );
     } catch (error) {
       const errorMessage =
@@ -1168,6 +1291,27 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       });
       await openProject(projectIdValue);
     }
+  }
+
+  async function applyChapterDetailsSuggestion() {
+    if (!selectedChapter || !chapterDetailsPreview) return;
+
+    await saveChapter({
+      ...selectedChapter,
+      title: chapterDetailsPreview.title ?? selectedChapter.title,
+      summary: chapterDetailsPreview.summary ?? selectedChapter.summary,
+      objectives: chapterDetailsPreview.objectives ?? selectedChapter.objectives,
+      hook: chapterDetailsPreview.hook ?? selectedChapter.hook,
+      storySoFar: chapterDetailsPreview.storySoFar ?? selectedChapter.storySoFar,
+    });
+
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiMessage("Autocomplete applied to the selected chapter details.");
+  }
+
+  function discardChapterDetailsSuggestion() {
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiMessage("Autocomplete discarded. Chapter details were not changed.");
   }
 
   async function computeSelectedChapterTrackers() {
@@ -1342,17 +1486,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   async function applyGeneratedChapterDraft() {
     if (!selectedChapter || !chapterDraftPreview.trim()) return;
 
+    flushPendingEditorSave();
     if (selectedChapter.content.trim()) {
       await createSnapshot(
         `Before AI chapter draft ${new Date().toLocaleTimeString()}`,
         selectedChapter.id,
-        selectedChapter.content
+        editor?.getHTML() ?? selectedChapter.content
       );
     }
 
+    const nextContent = plainTextToHtml(chapterDraftPreview);
+    setEditorContent(nextContent);
     await saveChapter({
       ...selectedChapter,
-      content: plainTextToHtml(chapterDraftPreview),
+      content: nextContent,
     });
 
     setChapterDraftPreview("");
@@ -1367,6 +1514,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setSceneCardsAiStatus("running");
     setSceneCardsAiError(null);
     setSceneCardsAiMessage(null);
+    setSceneCardsPreview(null);
 
     try {
       const result = await runAiAction({
@@ -1379,29 +1527,6 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
       if (parsed.length === 0) {
         throw new Error("AI response could not be mapped to scene cards.");
-      }
-
-      const existingScenes = selectedScenes.slice().sort((a, b) => a.order - b.order);
-
-      for (const [index, suggestion] of parsed.entries()) {
-        const existing = existingScenes[index];
-        const timestamp = new Date().toISOString();
-
-        await saveScene({
-          id: existing?.id ?? createId("scene"),
-          projectId: projectIdValue,
-          chapterId: selectedChapter.id,
-          order: index + 1,
-          title: suggestion.title || existing?.title || "",
-          description: suggestion.description || existing?.description || "",
-          location: suggestion.location || existing?.location || "",
-          characters:
-            suggestion.characters.length > 0 ? suggestion.characters : existing?.characters || [],
-          notes: suggestion.notes || existing?.notes || "",
-          draftText: suggestion.draftText || existing?.draftText || "",
-          createdAt: existing?.createdAt ?? timestamp,
-          updatedAt: existing?.updatedAt ?? timestamp,
-        });
       }
 
       await logAiAction({
@@ -1420,10 +1545,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         },
       });
 
-      await openProject(projectIdValue);
+      setSceneCardsPreview(parsed);
       setSceneCardsAiStatus("idle");
       setSceneCardsAiMessage(
-        "Scene cards were suggested from the current chapter canon and tracker state."
+        `${parsed.length} scene card${parsed.length > 1 ? "s" : ""} proposed. Review below, then apply or discard.`
       );
     } catch (error) {
       const errorMessage =
@@ -1449,6 +1574,41 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
+  async function applySceneCardSuggestions() {
+    if (!selectedChapter || !sceneCardsPreview || sceneCardsPreview.length === 0) return;
+
+    const existingScenes = selectedScenes.slice().sort((a, b) => a.order - b.order);
+
+    for (const [index, suggestion] of sceneCardsPreview.entries()) {
+      const existing = existingScenes[index];
+      const timestamp = new Date().toISOString();
+
+      await saveScene({
+        id: existing?.id ?? createId("scene"),
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        order: index + 1,
+        title: suggestion.title || existing?.title || "",
+        description: suggestion.description || existing?.description || "",
+        location: suggestion.location || existing?.location || "",
+        characters:
+          suggestion.characters.length > 0 ? suggestion.characters : existing?.characters || [],
+        notes: suggestion.notes || existing?.notes || "",
+        draftText: suggestion.draftText || existing?.draftText || "",
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: existing?.updatedAt ?? timestamp,
+      });
+    }
+
+    setSceneCardsPreview(null);
+    setSceneCardsAiMessage("Proposed scene cards were applied to this chapter.");
+  }
+
+  function discardSceneCardSuggestions() {
+    setSceneCardsPreview(null);
+    setSceneCardsAiMessage("Scene card proposal discarded. Existing cards were not changed.");
+  }
+
   async function generateSceneDraft(scene: Scene) {
     if (!activeProject || !selectedChapter) return;
 
@@ -1457,6 +1617,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setSceneDraftAiSceneId(scene.id);
     setSceneDraftAiError(null);
     setSceneDraftAiMessage(null);
+    setSceneDraftPreview(null);
 
     try {
       const result = await runAiAction({
@@ -1464,11 +1625,6 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         input,
         context,
         settings: resolved.settings,
-      });
-
-      await saveScene({
-        ...scene,
-        draftText: result.text,
       });
 
       await logAiAction({
@@ -1487,9 +1643,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         },
       });
 
-      await openProject(projectIdValue);
+      setSceneDraftPreview({ sceneId: scene.id, text: result.text });
       setSceneDraftAiSceneId(null);
-      setSceneDraftAiMessage(`Scene ${scene.order} draft text was generated from its card.`);
+      setSceneDraftAiMessage(
+        `Draft proposed for scene ${scene.order}. Review below, then apply or discard.`
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Scene draft generation failed";
@@ -1513,6 +1671,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       });
       await openProject(projectIdValue);
     }
+  }
+
+  async function applySceneDraftPreview() {
+    if (!sceneDraftPreview) return;
+    const scene = selectedScenes.find((item) => item.id === sceneDraftPreview.sceneId);
+    if (!scene) {
+      setSceneDraftPreview(null);
+      return;
+    }
+
+    await saveScene({
+      ...scene,
+      draftText: sceneDraftPreview.text,
+    });
+
+    setSceneDraftPreview(null);
+    setSceneDraftAiMessage(`Scene ${scene.order} draft text was updated from the proposal.`);
+  }
+
+  function discardSceneDraftPreview() {
+    setSceneDraftPreview(null);
+    setSceneDraftAiMessage("Scene draft proposal discarded.");
   }
 
   const mainClass = focusMode
@@ -1545,6 +1725,59 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         )}
         {chapterDetailsAiError && (
           <p className="mt-3 text-sm text-rose-700">{chapterDetailsAiError}</p>
+        )}
+        {chapterDetailsPreview && selectedChapter && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+              AI proposal — not applied yet
+            </p>
+            <dl className="mt-2 space-y-2 text-sm text-slate-800">
+              {chapterDetailsPreview.title && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</dt>
+                  <dd>{chapterDetailsPreview.title}</dd>
+                </div>
+              )}
+              {chapterDetailsPreview.summary && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</dt>
+                  <dd className="whitespace-pre-wrap">{chapterDetailsPreview.summary}</dd>
+                </div>
+              )}
+              {chapterDetailsPreview.objectives && chapterDetailsPreview.objectives.length > 0 && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Objectives</dt>
+                  <dd>{chapterDetailsPreview.objectives.join(", ")}</dd>
+                </div>
+              )}
+              {chapterDetailsPreview.hook && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hook</dt>
+                  <dd className="whitespace-pre-wrap">{chapterDetailsPreview.hook}</dd>
+                </div>
+              )}
+              {chapterDetailsPreview.storySoFar && (
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Story so far</dt>
+                  <dd className="whitespace-pre-wrap">{chapterDetailsPreview.storySoFar}</dd>
+                </div>
+              )}
+            </dl>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => void applyChapterDetailsSuggestion()}
+                className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                Apply proposal
+              </button>
+              <button
+                onClick={discardChapterDetailsSuggestion}
+                className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
         )}
         {selectedChapter ? (
           <div className="mt-3 grid gap-3">
@@ -1685,6 +1918,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       <TopNav />
 
       <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
+        {storeError && (
+          <div
+            role="alert"
+            className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          >
+            Save failed: {storeError}. The view was reloaded from the last persisted state.
+          </div>
+        )}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nav.workspace")}</p>
@@ -1936,6 +2177,111 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
               {storyWorldAiError && (
                 <p className="mt-3 text-sm text-rose-700">{storyWorldAiError}</p>
+              )}
+              {storyBiblePreview && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    AI proposal — not applied yet
+                  </p>
+                  <dl className="mt-2 space-y-2 text-sm text-slate-800">
+                    {storyBiblePreview.premise && (
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Premise</dt>
+                        <dd className="whitespace-pre-wrap">{storyBiblePreview.premise}</dd>
+                      </div>
+                    )}
+                    {storyBiblePreview.themes && storyBiblePreview.themes.length > 0 && (
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Themes</dt>
+                        <dd>{storyBiblePreview.themes.join(", ")}</dd>
+                      </div>
+                    )}
+                    {storyBiblePreview.stakes && (
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stakes</dt>
+                        <dd className="whitespace-pre-wrap">{storyBiblePreview.stakes}</dd>
+                      </div>
+                    )}
+                    {storyBiblePreview.worldRules && (
+                      <div>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">World rules</dt>
+                        <dd className="whitespace-pre-wrap">{storyBiblePreview.worldRules}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => void applyStoryBibleSuggestion()}
+                      className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Apply proposal
+                    </button>
+                    <button
+                      onClick={discardStoryBibleSuggestion}
+                      className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+              {storyWorldPreview && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                    AI world scaffold proposal — not applied yet
+                  </p>
+                  <ul className="mt-2 space-y-1 text-sm text-slate-800">
+                    {storyWorldPreview.characters.length > 0 && (
+                      <li>
+                        <span className="font-semibold">Characters ({storyWorldPreview.characters.length}):</span>{" "}
+                        {storyWorldPreview.characters.map((item) => item.name).join(", ")}
+                      </li>
+                    )}
+                    {storyWorldPreview.locations.length > 0 && (
+                      <li>
+                        <span className="font-semibold">Locations ({storyWorldPreview.locations.length}):</span>{" "}
+                        {storyWorldPreview.locations.map((item) => item.name).join(", ")}
+                      </li>
+                    )}
+                    {storyWorldPreview.lore.length > 0 && (
+                      <li>
+                        <span className="font-semibold">Lore ({storyWorldPreview.lore.length}):</span>{" "}
+                        {storyWorldPreview.lore.map((item) => item.title).join(", ")}
+                      </li>
+                    )}
+                    {storyWorldPreview.timeline.length > 0 && (
+                      <li>
+                        <span className="font-semibold">Timeline ({storyWorldPreview.timeline.length}):</span>{" "}
+                        {storyWorldPreview.timeline.map((item) => item.label).join(", ")}
+                      </li>
+                    )}
+                    {storyWorldPreview.relationships.length > 0 && (
+                      <li>
+                        <span className="font-semibold">Relationships ({storyWorldPreview.relationships.length}):</span>{" "}
+                        {storyWorldPreview.relationships
+                          .map((item) => `${item.source} → ${item.relationType} → ${item.target}`)
+                          .join(" · ")}
+                      </li>
+                    )}
+                  </ul>
+                  <p className="mt-2 text-xs text-slate-600">
+                    Existing entities with the same name are updated, new ones are created. Nothing is deleted.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => void applyStoryWorldSuggestion()}
+                      className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Apply scaffold
+                    </button>
+                    <button
+                      onClick={discardStoryWorldSuggestion}
+                      className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
               )}
               <p className="mt-3 text-sm text-slate-600">
                 Use the core suggestion to fill premise, themes, stakes, and world rules. Use the world suggestion to scaffold characters, locations, lore, timeline, and relationships from the same canon.
@@ -2811,10 +3157,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   />
                   <button
                     onClick={() => void applySearchReplace()}
-                    className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                    disabled={!searchText.trim()}
+                    className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
                   >
                     Apply globally
                   </button>
+                  {searchReplaceMessage && (
+                    <p className="text-xs text-slate-600">{searchReplaceMessage}</p>
+                  )}
                 </div>
               )}
 
@@ -3202,6 +3552,47 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     {sceneDraftAiError && (
                       <p className="text-xs text-rose-700">{sceneDraftAiError}</p>
                     )}
+                    {sceneCardsPreview && (
+                      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          AI scene card proposal — not applied yet
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-slate-800">
+                          {sceneCardsPreview.map((suggestion, index) => (
+                            <li key={`${suggestion.title}-${index}`}>
+                              <p className="font-semibold">{suggestion.title || "Untitled scene"}</p>
+                              {suggestion.description && (
+                                <p className="text-xs text-slate-600">{suggestion.description}</p>
+                              )}
+                              {(suggestion.location || suggestion.characters.length > 0) && (
+                                <p className="text-xs text-slate-500">
+                                  {[suggestion.location, suggestion.characters.join(", ")]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </p>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="mt-2 text-xs text-slate-600">
+                          Applying maps the proposal onto the existing cards in order; extra existing cards are kept.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => void applySceneCardSuggestions()}
+                            className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
+                          >
+                            Apply scene cards
+                          </button>
+                          <button
+                            onClick={discardSceneCardSuggestions}
+                            className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                          >
+                            Discard
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {selectedScenes.length === 0 && <p className="text-xs text-slate-600">No scenes yet for this chapter.</p>}
                     {selectedScenes.map((scene) => (
                       <div key={scene.id} className="rounded-lg border border-slate-200 bg-white p-2">
@@ -3394,6 +3785,30 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             Convert card to draft text
                           </button>
                         </div>
+                        {sceneDraftPreview?.sceneId === scene.id && (
+                          <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                              AI draft proposal — not applied yet
+                            </p>
+                            <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-amber-200 bg-white p-2 text-xs text-slate-700">
+                              {sceneDraftPreview.text}
+                            </pre>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                onClick={() => void applySceneDraftPreview()}
+                                className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
+                              >
+                                Apply to draft seed
+                              </button>
+                              <button
+                                onClick={discardSceneDraftPreview}
+                                className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
+                              >
+                                Discard
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
