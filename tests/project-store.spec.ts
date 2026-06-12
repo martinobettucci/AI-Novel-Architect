@@ -76,4 +76,105 @@ describe("project store", () => {
     await useProjectStore.getState().addScene(chapter.id);
     expect(useProjectStore.getState().activeProject?.scenes.length).toBe(1);
   });
+
+  it("persists optimistic edits so a reload sees the same state", async () => {
+    const bundle = await useProjectStore.getState().createProject({
+      title: "Optimistic",
+      genre: "SF",
+      audience: "Adult",
+      tone: "Cold",
+      targetWordCount: 50000,
+      language: "fr",
+      synopsis: "Optimistic test",
+      mode: "idea",
+      chapterCount: 1,
+    });
+
+    await useProjectStore.getState().openProject(bundle.project.id);
+    await useProjectStore.getState().saveCharacter({
+      id: "char-optimistic",
+      projectId: bundle.project.id,
+      name: "Nadia",
+      role: "Protagonist",
+      motivation: "",
+      arc: "",
+      voice: "",
+      relationships: "",
+      notes: "",
+      updatedAt: new Date().toISOString(),
+    });
+
+    expect(
+      useProjectStore.getState().activeProject?.characters.find((c) => c.id === "char-optimistic")
+        ?.name
+    ).toBe("Nadia");
+
+    useProjectStore.setState({ activeProject: null });
+    await useProjectStore.getState().openProject(bundle.project.id);
+    expect(
+      useProjectStore.getState().activeProject?.characters.find((c) => c.id === "char-optimistic")
+        ?.name
+    ).toBe("Nadia");
+  });
+
+  it("removes deleted characters and their relationships from state", async () => {
+    const bundle = await useProjectStore.getState().createProject({
+      title: "Cascade",
+      genre: "SF",
+      audience: "Adult",
+      tone: "Cold",
+      targetWordCount: 50000,
+      language: "fr",
+      synopsis: "Cascade test",
+      mode: "idea",
+      chapterCount: 1,
+    });
+
+    await useProjectStore.getState().openProject(bundle.project.id);
+    const timestamp = new Date().toISOString();
+    await useProjectStore.getState().saveCharacter({
+      id: "char-a",
+      projectId: bundle.project.id,
+      name: "A",
+      role: "",
+      motivation: "",
+      arc: "",
+      voice: "",
+      relationships: "",
+      notes: "",
+      updatedAt: timestamp,
+    });
+    await useProjectStore.getState().saveCharacter({
+      id: "char-b",
+      projectId: bundle.project.id,
+      name: "B",
+      role: "",
+      motivation: "",
+      arc: "",
+      voice: "",
+      relationships: "",
+      notes: "",
+      updatedAt: timestamp,
+    });
+    await useProjectStore.getState().saveRelationship({
+      id: "rel-ab",
+      projectId: bundle.project.id,
+      sourceType: "character",
+      sourceId: "char-a",
+      targetType: "character",
+      targetId: "char-b",
+      relationType: "allies",
+      status: "active",
+      intensity: 3,
+      notes: "",
+      updatedAt: timestamp,
+    });
+
+    await useProjectStore.getState().deleteCharacter("char-a");
+
+    const state = useProjectStore.getState().activeProject;
+    expect(state?.characters.some((c) => c.id === "char-a")).toBe(false);
+    expect(state?.relationships.some((r) => r.id === "rel-ab")).toBe(false);
+    expect(state?.characters.some((c) => c.id === "char-b")).toBe(true);
+  });
 });

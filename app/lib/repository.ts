@@ -3,7 +3,6 @@ import {
   createEntityProgression,
   createEntityHistoryEntry,
   createChapter,
-  createChapterTrackerReport,
   createDefaultChecklist,
   createId,
   createLocationProfile,
@@ -748,16 +747,38 @@ export async function saveCharacterProfile(profile: CharacterProfile): Promise<C
   return updated;
 }
 
-export async function deleteCharacterProfile(characterId: string): Promise<void> {
+interface TrackedEntityTable {
+  get: (id: string) => Promise<{ projectId: string } | undefined>;
+  delete: (id: string) => Promise<void>;
+}
+
+/**
+ * Delete a tracked entity (character, location, lore, timeline event) and
+ * cascade-delete its relationships, progression entries, and history notes.
+ */
+async function deleteTrackedEntityCascade(
+  table: TrackedEntityTable,
+  entityType: NarrativeRelationship["sourceType"],
+  entityId: string
+): Promise<void> {
   const db = getDb();
-  const existing = await db.characters.get(characterId);
+  const existing = await table.get(entityId);
   if (!existing) return;
 
   await db.transaction(
     "rw",
-    [db.characters, db.narrativeRelationships, db.entityProgression, db.entityHistory],
+    [
+      db.characters,
+      db.locations,
+      db.loreEntries,
+      db.timelineEvents,
+      db.narrativeRelationships,
+      db.entityProgression,
+      db.entityHistory,
+    ],
     async () => {
-      await db.characters.delete(characterId);
+      await table.delete(entityId);
+
       const relationships = await db.narrativeRelationships
         .where("projectId")
         .equals(existing.projectId)
@@ -766,8 +787,8 @@ export async function deleteCharacterProfile(characterId: string): Promise<void>
         relationships
           .filter(
             (item) =>
-              (item.sourceType === "character" && item.sourceId === characterId) ||
-              (item.targetType === "character" && item.targetId === characterId)
+              (item.sourceType === entityType && item.sourceId === entityId) ||
+              (item.targetType === entityType && item.targetId === entityId)
           )
           .map((item) => db.narrativeRelationships.delete(item.id))
       );
@@ -778,20 +799,27 @@ export async function deleteCharacterProfile(characterId: string): Promise<void>
         .toArray();
       await Promise.all(
         progressionEntries
-          .filter((item) => item.entityType === "character" && item.entityId === characterId)
+          .filter((item) => item.entityType === entityType && item.entityId === entityId)
           .map((item) => db.entityProgression.delete(item.id))
       );
 
-      const historyEntries = await db.entityHistory.where("projectId").equals(existing.projectId).toArray();
+      const historyEntries = await db.entityHistory
+        .where("projectId")
+        .equals(existing.projectId)
+        .toArray();
       await Promise.all(
         historyEntries
-          .filter((item) => item.entityType === "character" && item.entityId === characterId)
+          .filter((item) => item.entityType === entityType && item.entityId === entityId)
           .map((item) => db.entityHistory.delete(item.id))
       );
     }
   );
 
   await updateProjectMeta(existing.projectId, {});
+}
+
+export async function deleteCharacterProfile(characterId: string): Promise<void> {
+  await deleteTrackedEntityCascade(getDb().characters, "character", characterId);
 }
 
 export async function saveLocationProfile(profile: LocationProfile): Promise<LocationProfile> {
@@ -807,49 +835,7 @@ export async function saveLocationProfile(profile: LocationProfile): Promise<Loc
 }
 
 export async function deleteLocationProfile(locationId: string): Promise<void> {
-  const db = getDb();
-  const existing = await db.locations.get(locationId);
-  if (!existing) return;
-
-  await db.transaction(
-    "rw",
-    [db.locations, db.narrativeRelationships, db.entityProgression, db.entityHistory],
-    async () => {
-      await db.locations.delete(locationId);
-      const relationships = await db.narrativeRelationships
-        .where("projectId")
-        .equals(existing.projectId)
-        .toArray();
-      await Promise.all(
-        relationships
-          .filter(
-            (item) =>
-              (item.sourceType === "location" && item.sourceId === locationId) ||
-              (item.targetType === "location" && item.targetId === locationId)
-          )
-          .map((item) => db.narrativeRelationships.delete(item.id))
-      );
-
-      const progressionEntries = await db.entityProgression
-        .where("projectId")
-        .equals(existing.projectId)
-        .toArray();
-      await Promise.all(
-        progressionEntries
-          .filter((item) => item.entityType === "location" && item.entityId === locationId)
-          .map((item) => db.entityProgression.delete(item.id))
-      );
-
-      const historyEntries = await db.entityHistory.where("projectId").equals(existing.projectId).toArray();
-      await Promise.all(
-        historyEntries
-          .filter((item) => item.entityType === "location" && item.entityId === locationId)
-          .map((item) => db.entityHistory.delete(item.id))
-      );
-    }
-  );
-
-  await updateProjectMeta(existing.projectId, {});
+  await deleteTrackedEntityCascade(getDb().locations, "location", locationId);
 }
 
 export async function saveLoreEntry(entry: LoreEntryRecord): Promise<LoreEntryRecord> {
@@ -865,49 +851,7 @@ export async function saveLoreEntry(entry: LoreEntryRecord): Promise<LoreEntryRe
 }
 
 export async function deleteLoreEntry(loreId: string): Promise<void> {
-  const db = getDb();
-  const existing = await db.loreEntries.get(loreId);
-  if (!existing) return;
-
-  await db.transaction(
-    "rw",
-    [db.loreEntries, db.narrativeRelationships, db.entityProgression, db.entityHistory],
-    async () => {
-      await db.loreEntries.delete(loreId);
-      const relationships = await db.narrativeRelationships
-        .where("projectId")
-        .equals(existing.projectId)
-        .toArray();
-      await Promise.all(
-        relationships
-          .filter(
-            (item) =>
-              (item.sourceType === "lore" && item.sourceId === loreId) ||
-              (item.targetType === "lore" && item.targetId === loreId)
-          )
-          .map((item) => db.narrativeRelationships.delete(item.id))
-      );
-
-      const progressionEntries = await db.entityProgression
-        .where("projectId")
-        .equals(existing.projectId)
-        .toArray();
-      await Promise.all(
-        progressionEntries
-          .filter((item) => item.entityType === "lore" && item.entityId === loreId)
-          .map((item) => db.entityProgression.delete(item.id))
-      );
-
-      const historyEntries = await db.entityHistory.where("projectId").equals(existing.projectId).toArray();
-      await Promise.all(
-        historyEntries
-          .filter((item) => item.entityType === "lore" && item.entityId === loreId)
-          .map((item) => db.entityHistory.delete(item.id))
-      );
-    }
-  );
-
-  await updateProjectMeta(existing.projectId, {});
+  await deleteTrackedEntityCascade(getDb().loreEntries, "lore", loreId);
 }
 
 export async function saveTimelineEvent(event: TimelineEvent): Promise<TimelineEvent> {
@@ -923,49 +867,7 @@ export async function saveTimelineEvent(event: TimelineEvent): Promise<TimelineE
 }
 
 export async function deleteTimelineEvent(eventId: string): Promise<void> {
-  const db = getDb();
-  const event = await db.timelineEvents.get(eventId);
-  if (!event) return;
-
-  await db.transaction(
-    "rw",
-    [db.timelineEvents, db.narrativeRelationships, db.entityProgression, db.entityHistory],
-    async () => {
-      await db.timelineEvents.delete(eventId);
-      const relationships = await db.narrativeRelationships
-        .where("projectId")
-        .equals(event.projectId)
-        .toArray();
-      await Promise.all(
-        relationships
-          .filter(
-            (item) =>
-              (item.sourceType === "timeline_event" && item.sourceId === eventId) ||
-              (item.targetType === "timeline_event" && item.targetId === eventId)
-          )
-          .map((item) => db.narrativeRelationships.delete(item.id))
-      );
-
-      const progressionEntries = await db.entityProgression
-        .where("projectId")
-        .equals(event.projectId)
-        .toArray();
-      await Promise.all(
-        progressionEntries
-          .filter((item) => item.entityType === "timeline_event" && item.entityId === eventId)
-          .map((item) => db.entityProgression.delete(item.id))
-      );
-
-      const historyEntries = await db.entityHistory.where("projectId").equals(event.projectId).toArray();
-      await Promise.all(
-        historyEntries
-          .filter((item) => item.entityType === "timeline_event" && item.entityId === eventId)
-          .map((item) => db.entityHistory.delete(item.id))
-      );
-    }
-  );
-
-  await updateProjectMeta(event.projectId, {});
+  await deleteTrackedEntityCascade(getDb().timelineEvents, "timeline_event", eventId);
 }
 
 export async function saveNarrativeRelationship(
@@ -1237,9 +1139,7 @@ export async function saveChapterTrackerReport(
   const db = getDb();
   const updated: ChapterTrackerReport = {
     ...report,
-    id:
-      report.id ||
-      createChapterTrackerReport(report.projectId, report.chapterId, report.trackerType).id,
+    id: report.id || createId("chapter-tracker"),
     updatedAt: now(),
   };
   await db.chapterTrackerReports.put(updated);

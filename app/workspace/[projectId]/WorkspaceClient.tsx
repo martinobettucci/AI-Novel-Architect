@@ -1419,6 +1419,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   async function generateChapterDraft() {
     if (!activeProject || !selectedChapter) return;
 
+    if (selectedChapter.aiLocked) {
+      setChapterDraftAiStatus("error");
+      setChapterDraftAiError(
+        "This chapter is locked from AI rewrite. Unlock it in the Plan tab first."
+      );
+      return;
+    }
+
     const input = buildChapterDraftInput(activeProject, selectedChapter.id);
     const context = buildChapterDraftContext();
     setChapterDraftAiStatus("running");
@@ -1484,7 +1492,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   async function applyGeneratedChapterDraft() {
-    if (!selectedChapter || !chapterDraftPreview.trim()) return;
+    if (!selectedChapter || !chapterDraftPreview.trim() || selectedChapter.aiLocked) return;
 
     flushPendingEditorSave();
     if (selectedChapter.content.trim()) {
