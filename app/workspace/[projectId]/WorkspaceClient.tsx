@@ -819,6 +819,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     await addScene(chapterId);
   }
 
+  async function confirmDeleteChapter(chapter: Chapter) {
+    const confirmed = window.confirm(
+      `Delete ${chapterLabel(chapter)}? Its scenes, annotations, and snapshots are removed too. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await deleteChapter(chapter.id);
+  }
+
   async function createIssueFromGrammar(suggestion: string) {
     if (!selectedChapter) return;
     await createRevisionIssue({
@@ -1905,7 +1913,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 </button>
               )}
               <button
-                onClick={() => void deleteChapter(selectedChapter.id)}
+                onClick={() => void confirmDeleteChapter(selectedChapter)}
                 className="rounded border border-rose-300 px-3 py-2 text-sm text-rose-700"
               >
                 Delete chapter
@@ -2093,7 +2101,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 Add scene
                               </button>
                               <button
-                                onClick={() => void deleteChapter(chapter.id)}
+                                onClick={() => void confirmDeleteChapter(chapter)}
                                 className="rounded border border-rose-300 px-2 py-1 text-xs text-rose-700"
                               >
                                 Delete

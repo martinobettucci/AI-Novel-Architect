@@ -12,14 +12,16 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "fr",
     icons: [
       {
-        src: "/next.svg",
-        sizes: "192x192",
+        src: "/icon.svg",
+        sizes: "any",
         type: "image/svg+xml",
+        purpose: "any",
       },
       {
-        src: "/vercel.svg",
-        sizes: "512x512",
+        src: "/icon.svg",
+        sizes: "any",
         type: "image/svg+xml",
+        purpose: "maskable",
       },
     ],
   };

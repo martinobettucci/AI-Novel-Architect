@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const [synopsis, setSynopsis] = useState("");
   const [outlineText, setOutlineText] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
     void refreshProjects();
@@ -45,6 +46,11 @@ export default function DashboardPage() {
 
   const activeProjects = useMemo(
     () => projects.filter((project) => project.status === "active"),
+    [projects]
+  );
+
+  const archivedProjects = useMemo(
+    () => projects.filter((project) => project.status === "archived"),
     [projects]
   );
 
@@ -77,14 +83,36 @@ export default function DashboardPage() {
   }
 
   async function handleProjectImport(file: File) {
-    const text = await file.text();
-    const imported = await importProjectFile(file.name, text);
-    await openProject(imported.project.id);
+    try {
+      setPageError(null);
+      const text = await file.text();
+      const imported = await importProjectFile(file.name, text);
+      await openProject(imported.project.id);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? `Import failed: ${error.message}` : "Import failed."
+      );
+    }
   }
 
   async function handleBackupImport(file: File) {
-    const imported = await importBackupFile(file);
-    await openProject(imported.project.id);
+    try {
+      setPageError(null);
+      const imported = await importBackupFile(file);
+      await openProject(imported.project.id);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? `Backup restore failed: ${error.message}` : "Backup restore failed."
+      );
+    }
+  }
+
+  async function handleDelete(projectId: string, title: string) {
+    const confirmed = window.confirm(
+      `Delete "${title}" permanently? This removes the manuscript, story bible, and all local history. Export a backup first if you are unsure.`
+    );
+    if (!confirmed) return;
+    await deleteProjectById(projectId);
   }
 
   async function handleExport(projectId: string) {
@@ -159,6 +187,15 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {pageError && (
+          <div
+            role="alert"
+            className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          >
+            {pageError}
+          </div>
+        )}
+
         <section className="grid gap-4">
           {loading && <p className="text-sm text-slate-500">Loading projects…</p>}
 
@@ -211,7 +248,7 @@ export default function DashboardPage() {
                     {t("common.archive")}
                   </button>
                   <button
-                    onClick={() => void deleteProjectById(project.id)}
+                    onClick={() => void handleDelete(project.id, project.title)}
                     className="rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50"
                   >
                     {t("common.delete")}
@@ -221,6 +258,44 @@ export default function DashboardPage() {
             </article>
           ))}
         </section>
+
+        {archivedProjects.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-lg font-semibold text-slate-900">Archived projects</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Archived manuscripts stay stored locally. Restore one to keep working on it.
+            </p>
+            <div className="mt-3 grid gap-2">
+              {archivedProjects.map((project) => (
+                <article
+                  key={project.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/70 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800">{project.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {project.genre} · {project.targetWordCount.toLocaleString()} words target
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => void archiveProjectById(project.id, "active")}
+                      className="rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-800 hover:bg-teal-50"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => void handleDelete(project.id, project.title)}
+                      className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
+                    >
+                      {t("common.delete")}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       {showCreate && (

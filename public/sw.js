@@ -1,4 +1,4 @@
-const CACHE = "ai-novel-architect-v3";
+const CACHE = "ai-novel-architect-v4";
 const ASSETS = ["/", "/settings"];
 
 function isCacheable(response) {
@@ -40,11 +40,31 @@ self.addEventListener("fetch", (event) => {
   }
 
   // API responses are dynamic and can vary by headers. Never cache them.
-  if (
-    url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/_next/") ||
-    url.pathname === "/sw.js"
-  ) {
+  if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // Hashed build assets are immutable: cache-first so the installed app
+  // keeps working fully offline.
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          if (isCacheable(response)) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // Other /_next/ requests (image optimizer, dev assets) stay network-only.
+  if (url.pathname.startsWith("/_next/")) {
     event.respondWith(fetch(event.request));
     return;
   }
