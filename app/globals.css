@@ -12,8 +12,9 @@
   --accent-soft: #ccfbf1;
   --danger: #9f1239;
   --success: #166534;
-  --font-sans: var(--font-sans-custom), "Avenir Next", "Segoe UI", sans-serif;
-  --font-serif: var(--font-serif-custom), "Georgia", serif;
+  /* Offline-safe stacks: the app is local-first, so no font may be fetched from the network. */
+  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
 }
 
 * {

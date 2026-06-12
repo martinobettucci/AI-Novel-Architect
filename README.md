@@ -44,13 +44,6 @@ Coverage gate is enforced in `vitest.config.ts`.
 - `GET /api/ai/models`
 - `POST /api/ai/run`
 
-Legacy endpoints are still mapped for compatibility:
-
-- `/api/gemini-status`
-- `/api/llm-models`
-- `/api/plan-audit`
-- `/api/plan-rewrite`
-
 ## Notes
 
 - Data is local-first and stored in IndexedDB (`ai-novel-architect-v2`), with hard-reset policy (legacy data is not migrated).

@@ -43,7 +43,7 @@ export function readOpenAiConfigFromHeaders(headers: Headers): OpenAiRuntimeConf
   };
 }
 
-export function openAiHeaders(apiKey?: string): HeadersInit {
+export function openAiHeaders(apiKey?: string): Record<string, string> {
   if (!apiKey) {
     return { "Content-Type": "application/json" };
   }
