@@ -68,7 +68,7 @@ function plainText(input: string): string {
     .trim();
 }
 
-function wordCount(input: string): number {
+export function wordCount(input: string): number {
   const trimmed = plainText(input);
   if (!trimmed) return 0;
   return trimmed.split(/\s+/).length;
