@@ -6,6 +6,13 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { buildEntityHistorySnapshot } from "@/app/lib/ai/entityHistory";
+import {
+  asRecord,
+  asString,
+  asStringArray,
+  createJsonResponseFormat,
+  parseStructuredJson,
+} from "@/app/lib/ai/structuredOutput";
 
 type ChapterDetailsSuggestionFields = Pick<
   Chapter,
@@ -18,6 +25,27 @@ type ChapterDetailsLabel =
   | "Objectives"
   | "Hook"
   | "Story so far";
+
+export const CHAPTER_DETAILS_RESPONSE_FORMAT = createJsonResponseFormat(
+  "chapter_details",
+  {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: { type: "string", maxLength: 160 },
+      summary: { type: "string", maxLength: 900 },
+      objectives: {
+        type: "array",
+        minItems: 2,
+        maxItems: 6,
+        items: { type: "string", maxLength: 220 },
+      },
+      hook: { type: "string", maxLength: 500 },
+      storySoFar: { type: "string", maxLength: 1400 },
+    },
+    required: ["title", "summary", "objectives", "hook", "storySoFar"],
+  }
+);
 
 function compactList(values: string[]): string {
   return values.map((value) => value.trim()).filter(Boolean).join(", ") || "none";
@@ -273,7 +301,8 @@ export function buildChapterDetailsAutocompleteContext(): string {
     "Use only information available up to and including the selected chapter.",
     "Respect prior chapter details, story bible elements, story-wide registries, relationships, entity progression, and the per-entity chapter history timeline.",
     "Story-wide registries are the baseline canon. The per-entity chapter history timeline tells you when each entity or relationship becomes active, introduced, altered, or unavailable by chapter.",
-    "Return plain text using exactly this template. Keep the field labels exactly as written and write all values in the requested response language:",
+    "When a JSON schema is provided, return JSON matching it exactly. Otherwise use the plain-text template below.",
+    "For the plain-text fallback, keep the field labels exactly as written and write all values in the requested response language:",
     "Chapter Details",
     "Title: ...",
     "Summary: ...",
@@ -297,6 +326,25 @@ export function buildChapterDetailsAutocompleteContext(): string {
 export function parseChapterDetailsSuggestion(
   text: string
 ): Partial<ChapterDetailsSuggestionFields> {
+  const json = asRecord(parseStructuredJson(text));
+  if (json) {
+    const title = asString(json.title);
+    const summary = asString(json.summary);
+    const objectives = asStringArray(json.objectives);
+    const hook = asString(json.hook);
+    const storySoFar = asString(json.storySoFar);
+
+    if (title || summary || objectives.length > 0 || hook || storySoFar) {
+      return {
+        ...(title ? { title } : {}),
+        ...(summary ? { summary } : {}),
+        ...(objectives.length > 0 ? { objectives } : {}),
+        ...(hook ? { hook } : {}),
+        ...(storySoFar ? { storySoFar } : {}),
+      };
+    }
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const pattern =
     /(?:^|\n)\s*(?:\*\*)?\s*(Title|Summary|Objectives|Hook|Story so far)\s*:(?:\*\*)?\s*/gi;

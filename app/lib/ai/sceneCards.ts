@@ -6,6 +6,14 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { buildEntityHistorySnapshot } from "@/app/lib/ai/entityHistory";
+import {
+  asRecord,
+  asRecordArray,
+  asString,
+  asStringArray,
+  createJsonResponseFormat,
+  parseStructuredJson,
+} from "@/app/lib/ai/structuredOutput";
 
 type SceneCardSuggestion = Pick<
   Scene,
@@ -19,6 +27,46 @@ type SceneCardLabel =
   | "Characters"
   | "Notes"
   | "Draft text";
+
+export const SCENE_CARDS_RESPONSE_FORMAT = createJsonResponseFormat(
+  "scene_cards",
+  {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      scenes: {
+        type: "array",
+        minItems: 3,
+        maxItems: 4,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string", maxLength: 120 },
+            description: { type: "string", maxLength: 240 },
+            location: { type: "string", maxLength: 120 },
+            characters: {
+              type: "array",
+              maxItems: 8,
+              items: { type: "string", maxLength: 80 },
+            },
+            notes: { type: "string", maxLength: 240 },
+            draftText: { type: "string", maxLength: 360 },
+          },
+          required: [
+            "title",
+            "description",
+            "location",
+            "characters",
+            "notes",
+            "draftText",
+          ],
+        },
+      },
+    },
+    required: ["scenes"],
+  }
+);
 
 function compactList(values: string[]): string {
   return values.map((value) => value.trim()).filter(Boolean).join(", ") || "none";
@@ -353,7 +401,8 @@ export function buildSceneCardSuggestionContext(): string {
     "All suggestions must fit the selected chapter only.",
     "Respect the current chapter summary, objectives, hook, and story-so-far state.",
     "If existing scene cards are present, improve or extend that sequence instead of contradicting it.",
-    "Return plain text using exactly this template. Keep the field labels exactly as written and write all values in the requested response language:",
+    "When a JSON schema is provided, return JSON matching it exactly. Otherwise use the plain-text template below.",
+    "For the plain-text fallback, keep the field labels exactly as written and write all values in the requested response language:",
     "Scene Cards",
     "[Scene 1]",
     "Title: ...",
@@ -371,7 +420,7 @@ export function buildSceneCardSuggestionContext(): string {
     "Notes: ...",
     "Draft text: ...",
     "Requirements:",
-    "- Suggest 3 to 6 scene cards.",
+    "- Suggest 3 to 4 scene cards.",
     "- Every scene must advance the selected chapter objectives or hook.",
     "- Use only story-wide entities and facts already present or strongly implied by the provided canon.",
     "- Keep continuity with tracker states and entity progression through the selected chapter.",
@@ -382,6 +431,22 @@ export function buildSceneCardSuggestionContext(): string {
 }
 
 export function parseSceneCardSuggestions(text: string): SceneCardSuggestion[] {
+  const json = asRecord(parseStructuredJson(text));
+  const jsonScenes = asRecordArray(json?.scenes)
+    .map((scene) => ({
+      title: asString(scene.title),
+      description: asString(scene.description),
+      location: asString(scene.location),
+      characters: asStringArray(scene.characters),
+      notes: asString(scene.notes),
+      draftText: asString(scene.draftText),
+    }))
+    .filter((scene) => scene.title || scene.description || scene.location);
+
+  if (jsonScenes.length > 0) {
+    return jsonScenes;
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const sectionPattern = /(?:^|\n)\s*(?:\[)?Scene\s+\d+(?:\])?\s*:?\s*/gi;
   const matches = Array.from(normalized.matchAll(sectionPattern));

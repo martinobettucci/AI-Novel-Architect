@@ -3,6 +3,7 @@ import {
   buildStoryWorldSuggestionContext,
   buildStoryWorldSuggestionInput,
   parseStoryWorldSuggestion,
+  STORY_WORLD_RESPONSE_FORMAT,
 } from "@/app/lib/ai/storyBibleFollowup";
 import type { ProjectBundle } from "@/app/domain/models";
 
@@ -86,6 +87,18 @@ function createBundle(): ProjectBundle {
 }
 
 describe("story bible followup AI helpers", () => {
+  it("bounds every story-world collection so local models finish", () => {
+    const schema = STORY_WORLD_RESPONSE_FORMAT.json_schema.schema as {
+      properties?: Record<string, { minItems?: number; maxItems?: number }>;
+    };
+
+    expect(schema.properties?.characters).toMatchObject({ minItems: 1, maxItems: 3 });
+    expect(schema.properties?.locations).toMatchObject({ minItems: 1, maxItems: 3 });
+    expect(schema.properties?.lore).toMatchObject({ minItems: 1, maxItems: 3 });
+    expect(schema.properties?.timeline).toMatchObject({ minItems: 1, maxItems: 4 });
+    expect(schema.properties?.relationships).toMatchObject({ minItems: 1, maxItems: 4 });
+  });
+
   it("builds the story world scaffold prompt", () => {
     const input = buildStoryWorldSuggestionInput(createBundle());
     const context = buildStoryWorldSuggestionContext();
@@ -117,5 +130,30 @@ describe("story bible followup AI helpers", () => {
     expect(parsed.timeline[0]?.chapterNumber).toBe(1);
     expect(parsed.relationships[0]?.targetType).toBe("lore");
     expect(parsed.relationships[0]?.intensity).toBe(4);
+  });
+
+  it("parses Ollama structured JSON output", () => {
+    const parsed = parseStoryWorldSuggestion(
+      JSON.stringify({
+        characters: [
+          {
+            name: "Mira",
+            role: "Cartographe",
+            motivation: "Retrouver son frère",
+            arc: "Accepter le coût du pouvoir",
+            voice: "Précise",
+            relationships: "Se méfie de Jonas",
+            notes: "",
+          },
+        ],
+        locations: [],
+        lore: [],
+        timeline: [],
+        relationships: [],
+      })
+    );
+
+    expect(parsed.characters[0]?.name).toBe("Mira");
+    expect(parsed.characters[0]?.motivation).toContain("frère");
   });
 });

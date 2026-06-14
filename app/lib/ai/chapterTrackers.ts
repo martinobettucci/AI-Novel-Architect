@@ -7,6 +7,13 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { buildEntityHistorySnapshot, relationshipLabel } from "@/app/lib/ai/entityHistory";
+import {
+  asRecord,
+  asRecordArray,
+  asString,
+  createJsonResponseFormat,
+  parseStructuredJson,
+} from "@/app/lib/ai/structuredOutput";
 
 const TRACKER_TYPES: ChapterTrackerType[] = [
   "characters",
@@ -16,6 +23,76 @@ const TRACKER_TYPES: ChapterTrackerType[] = [
   "relationships",
   "progressions",
 ];
+
+const STRING_FIELD = { type: "string", maxLength: 420 };
+
+export const CHAPTER_TRACKERS_RESPONSE_FORMAT = createJsonResponseFormat(
+  "chapter_trackers",
+  {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reports: {
+        type: "array",
+        minItems: 6,
+        maxItems: 6,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            trackerType: {
+              type: "string",
+              enum: TRACKER_TYPES,
+            },
+            previousState: STRING_FIELD,
+            chapterEvolution: STRING_FIELD,
+            finalState: STRING_FIELD,
+          },
+          required: [
+            "trackerType",
+            "previousState",
+            "chapterEvolution",
+            "finalState",
+          ],
+        },
+      },
+      entityHistory: {
+        type: "array",
+        maxItems: 24,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            entityType: {
+              type: "string",
+              enum: ["character", "location", "lore", "timeline_event", "relationship"],
+            },
+            entity: STRING_FIELD,
+            label: STRING_FIELD,
+            sourceType: STRING_FIELD,
+            source: STRING_FIELD,
+            targetType: STRING_FIELD,
+            target: STRING_FIELD,
+            relationType: STRING_FIELD,
+            note: STRING_FIELD,
+          },
+          required: [
+            "entityType",
+            "entity",
+            "label",
+            "sourceType",
+            "source",
+            "targetType",
+            "target",
+            "relationType",
+            "note",
+          ],
+        },
+      },
+    },
+    required: ["reports", "entityHistory"],
+  }
+);
 
 function compactList(values: string[]): string {
   return values.map((value) => value.trim()).filter(Boolean).join(", ") || "none";
@@ -317,7 +394,8 @@ export function buildChapterTrackerComputationContext(): string {
     "Compute per-chapter drafting trackers for the selected chapter.",
     "Read the prior chapters as the source of truth for the story state before this chapter starts.",
     "Then infer how the selected chapter draft evolves the story and summarize the final state at the end of the selected chapter.",
-    "Return plain text using exactly this template. Keep the tracker labels exactly as written and write all values in the requested response language:",
+    "When a JSON schema is provided, return JSON matching it exactly. Otherwise use the plain-text template below.",
+    "For the plain-text fallback, keep the tracker labels exactly as written and write all values in the requested response language:",
     "Chapter Trackers",
     "[Characters]",
     "Previous state: ...",
@@ -372,6 +450,45 @@ export function parseEntityHistorySuggestion(
   text: string,
   bundle: ProjectBundle
 ): Array<Pick<EntityHistoryEntry, "entityType" | "entityId" | "label" | "note">> {
+  const json = asRecord(parseStructuredJson(text));
+  const jsonEntries = asRecordArray(json?.entityHistory)
+    .map((item) => {
+      const entry = Object.fromEntries(
+        Object.entries(item).map(([key, value]) => [key, asString(value)])
+      );
+      const entityType = parseHistoryEntityType(entry.entityType ?? "");
+      if (!entityType) return null;
+
+      const label =
+        entityType === "relationship"
+          ? entry.label ||
+            [
+              entry.source || "Unknown source",
+              "->",
+              entry.relationType || "related to",
+              "->",
+              entry.target || "Unknown target",
+            ].join(" ")
+          : entry.entity || entry.label || "";
+
+      return {
+        entityType,
+        entityId: resolveEntityId(bundle, entityType, entry),
+        label,
+        note: entry.note ?? "",
+      };
+    })
+    .filter(
+      (
+        entry
+      ): entry is Pick<EntityHistoryEntry, "entityType" | "entityId" | "label" | "note"> =>
+        entry != null && Boolean(entry.label || entry.note)
+    );
+
+  if (jsonEntries.length > 0) {
+    return jsonEntries;
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const sectionMatch = normalized.match(
     /\[Entity History\]\s*([\s\S]*?)(?=\nRequirements:|$)/i
@@ -436,6 +553,34 @@ export function parseChapterTrackerComputation(
 export function parseChapterTrackerSuggestion(
   text: string
 ): Array<Pick<ChapterTrackerReport, "trackerType" | "previousState" | "chapterEvolution" | "finalState">> {
+  const json = asRecord(parseStructuredJson(text));
+  const jsonReports = asRecordArray(json?.reports)
+    .map((entry) => {
+      const trackerType = asString(entry.trackerType) as ChapterTrackerType;
+      if (!TRACKER_TYPES.includes(trackerType)) return null;
+
+      return {
+        trackerType,
+        previousState: asString(entry.previousState),
+        chapterEvolution: asString(entry.chapterEvolution),
+        finalState: asString(entry.finalState),
+      };
+    })
+    .filter(
+      (
+        report
+      ): report is Pick<
+        ChapterTrackerReport,
+        "trackerType" | "previousState" | "chapterEvolution" | "finalState"
+      > =>
+        report != null &&
+        Boolean(report.previousState || report.chapterEvolution || report.finalState)
+    );
+
+  if (jsonReports.length > 0) {
+    return jsonReports;
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const reports: Array<
     Pick<ChapterTrackerReport, "trackerType" | "previousState" | "chapterEvolution" | "finalState">

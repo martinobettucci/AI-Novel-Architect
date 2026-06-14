@@ -15,6 +15,12 @@ export type MessageKey =
   | "workspace.publish"
   | "workspace.marketing"
   | "workspace.settings"
+  | "workspace.search"
+  | "workspace.filter"
+  | "workspace.collapse"
+  | "workspace.expand"
+  | "workspace.chapterDetails"
+  | "workspace.trackers"
   | "common.save"
   | "common.cancel"
   | "common.delete"
@@ -43,6 +49,12 @@ const fr: Record<MessageKey, string> = {
   "workspace.publish": "Publication",
   "workspace.marketing": "Marketing",
   "workspace.settings": "Réglages",
+  "workspace.search": "Recherche",
+  "workspace.filter": "Filtrer",
+  "workspace.collapse": "Replier",
+  "workspace.expand": "Déplier",
+  "workspace.chapterDetails": "Détails du chapitre",
+  "workspace.trackers": "Trackers",
   "common.save": "Sauvegarder",
   "common.cancel": "Annuler",
   "common.delete": "Supprimer",
@@ -72,6 +84,12 @@ const en: Record<MessageKey, string> = {
   "workspace.publish": "Publishing",
   "workspace.marketing": "Marketing",
   "workspace.settings": "Settings",
+  "workspace.search": "Search",
+  "workspace.filter": "Filter",
+  "workspace.collapse": "Collapse",
+  "workspace.expand": "Expand",
+  "workspace.chapterDetails": "Chapter details",
+  "workspace.trackers": "Trackers",
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.delete": "Delete",

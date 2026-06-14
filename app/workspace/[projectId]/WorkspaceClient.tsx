@@ -4,8 +4,13 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import TopNav from "@/app/components/TopNav";
+import WorkspaceContextHeader from "@/app/components/workspace/WorkspaceContextHeader";
+import ProjectCompanionSidebar from "@/app/components/workspace/ProjectCompanionSidebar";
+import WorkspaceTabNavigation from "@/app/components/workspace/WorkspaceTabNavigation";
+import CollapsibleCard from "@/app/components/ui/CollapsibleCard";
+import FieldLabel from "@/app/components/ui/FieldLabel";
+import FilterInput from "@/app/components/ui/FilterInput";
 import type {
   AiActionType,
   Chapter,
@@ -13,12 +18,15 @@ import type {
   ChapterTrackerReport,
   ChapterTrackerType,
   EntityProgression,
+  LlmSettings,
   NarrativeRelationship,
   RevisionIssue,
   Scene,
   TrackedEntityType,
 } from "@/app/domain/models";
 import {
+  DEFAULT_LLM_BASE_URL,
+  DEFAULT_LLM_MODEL,
   createEntityProgression,
   createId,
   createLocationProfile,
@@ -32,16 +40,34 @@ import {
   type AssistantId,
 } from "@/app/lib/ai/assistants";
 import {
+  buildProjectCompanionContext,
+  buildProjectCompanionQuestionInput,
+} from "@/app/lib/ai/projectCompanion";
+import {
   buildChapterTrackerComputationContext,
   buildChapterTrackerComputationInput,
+  CHAPTER_TRACKERS_RESPONSE_FORMAT,
   listChapterTrackerTypes,
   parseChapterTrackerComputation,
 } from "@/app/lib/ai/chapterTrackers";
 import {
   buildChapterDetailsAutocompleteContext,
   buildChapterDetailsAutocompleteInput,
+  CHAPTER_DETAILS_RESPONSE_FORMAT,
   parseChapterDetailsSuggestion,
 } from "@/app/lib/ai/chapterDetails";
+import {
+  BOOK_PLAN_METHODS,
+  BOOK_PLAN_RESEARCH_SOURCES,
+  buildBookChapterPlanInput,
+  buildBookChapterPlanMergeContext,
+  buildBookChapterPlanMergeInput,
+  buildBookChapterPlanMethodContext,
+  createBookChapterPlanResponseFormat,
+  parseBookChapterPlanSuggestion,
+  type BookChapterPlanSuggestion,
+  type BookPlanMethodId,
+} from "@/app/lib/ai/bookChapterPlan";
 import {
   buildChapterDraftContext,
   buildChapterDraftInput,
@@ -52,18 +78,21 @@ import {
   buildSceneDraftContext,
   buildSceneDraftInput,
   parseSceneCardSuggestions,
+  SCENE_CARDS_RESPONSE_FORMAT,
 } from "@/app/lib/ai/sceneCards";
 import {
   buildStoryBibleSuggestionContext,
   buildStoryBibleSuggestionInput,
   parseStoryBibleSuggestion,
+  STORY_BIBLE_RESPONSE_FORMAT,
 } from "@/app/lib/ai/storyBible";
 import {
   buildStoryWorldSuggestionContext,
   buildStoryWorldSuggestionInput,
   parseStoryWorldSuggestion,
+  STORY_WORLD_RESPONSE_FORMAT,
 } from "@/app/lib/ai/storyBibleFollowup";
-import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
+import { buildPreviewApply, runAiAction, type AiRunResult } from "@/app/lib/ai/client";
 import type { DiffChunk } from "@/app/lib/ai/diff";
 import { downloadBlob, downloadText } from "@/app/lib/download";
 import {
@@ -81,34 +110,116 @@ import {
 } from "@/app/lib/repository";
 import { useProjectStore } from "@/app/stores/projectStore";
 import { useSettingsStore } from "@/app/stores/settingsStore";
+import { useWorkspaceUiPrefs } from "@/app/workspace/[projectId]/ui/useWorkspaceUiPrefs";
+import type {
+  FieldHelpKey,
+  WorkspaceCollapsibleSection,
+  WorkspaceFilterState,
+  WorkspaceTab,
+} from "@/app/workspace/[projectId]/ui/types";
 
-type WorkspaceTab =
-  | "plan"
-  | "bible"
-  | "drafting"
-  | "revision"
-  | "publish"
-  | "marketing"
-  | "settings";
+const TAB_DESCRIPTIONS: Record<WorkspaceTab, { en: string; fr: string }> = {
+  plan: {
+    en: "Project framing and chapter structure",
+    fr: "Cadrage du projet et structure des chapitres",
+  },
+  bible: {
+    en: "Canon entities, lore, and world timelines",
+    fr: "Canon, entites, lore et chronologies du monde",
+  },
+  drafting: {
+    en: "Chapter studio, scene cards, and assistants",
+    fr: "Studio de chapitre, cartes de scenes et assistants",
+  },
+  revision: {
+    en: "Issue tracking, quality checks, and checklist",
+    fr: "Suivi des problemes, controle qualite, checklist",
+  },
+  publish: {
+    en: "Export-ready publishing artifacts",
+    fr: "Artefacts de publication prets a exporter",
+  },
+  marketing: {
+    en: "Launch-oriented copy and toolkit",
+    fr: "Copies et toolkit orientes lancement",
+  },
+  settings: {
+    en: "Project-scoped model and QA preferences",
+    fr: "Preferences modele et QA au niveau projet",
+  },
+};
 
-const TABS: Array<{ id: WorkspaceTab; label: string }> = [
-  { id: "plan", label: "Plan" },
-  { id: "bible", label: "Story Bible" },
-  { id: "drafting", label: "Drafting" },
-  { id: "revision", label: "Revision" },
-  { id: "publish", label: "Publish" },
-  { id: "marketing", label: "Marketing" },
-  { id: "settings", label: "Settings" },
-];
+const FIELD_HELP_TEXT: Record<"fr" | "en", Record<FieldHelpKey, string>> = {
+  en: {
+    "project.title": "Reader-facing title. Keep it clear, memorable, and genre-aligned.",
+    "project.synopsis": "High-level story arc used by planning, drafting, and AI context builders.",
+    "chapter.summary": "Chapter-level intent and progression in 2-5 sentences.",
+    "chapter.objectives": "Comma-separated goals this chapter must accomplish narratively.",
+    "chapter.hook": "Opening tension or curiosity trigger for the chapter.",
+    "chapter.storySoFar": "What the reader should already know before this chapter starts.",
+    "bible.premise": "Core concept sentence. This drives consistency checks and AI grounding.",
+    "bible.themes": "Comma-separated motifs or ideas repeated through the manuscript.",
+    "bible.stakes": "What is gained or lost if protagonists fail or succeed.",
+    "bible.worldRules": "Hard/soft rules of the story world to protect continuity.",
+    "settings.baseUrl": "Endpoint used for all AI requests in this project scope.",
+    "settings.model": "Model id sent with each AI request.",
+    "settings.apiKey": "Optional override key for this project scope.",
+    "settings.toneGuide": "Reusable tone constraints passed to AI actions.",
+    "settings.structureWeight": "Weight contribution in chapter quality scoring.",
+  },
+  fr: {
+    "project.title": "Titre visible cote lecteur. Visez clarte, memorisation et adequation au genre.",
+    "project.synopsis": "Arc narratif global utilise pour le plan, la redaction et le contexte IA.",
+    "chapter.summary": "Intention du chapitre et progression en 2 a 5 phrases.",
+    "chapter.objectives": "Objectifs separes par des virgules que le chapitre doit accomplir.",
+    "chapter.hook": "Element d'accroche qui cree tension ou curiosite en ouverture.",
+    "chapter.storySoFar": "Ce que le lecteur est suppose savoir avant ce chapitre.",
+    "bible.premise": "Concept coeur en une phrase. Sert de base a la coherence.",
+    "bible.themes": "Motifs et idees recurrentes, separes par des virgules.",
+    "bible.stakes": "Ce qui est gagne ou perdu en cas d'echec ou de succes.",
+    "bible.worldRules": "Regles du monde (souples/dures) pour proteger la continuite.",
+    "settings.baseUrl": "Endpoint utilise pour toutes les requetes IA sur ce projet.",
+    "settings.model": "Identifiant du modele transmis a chaque requete IA.",
+    "settings.apiKey": "Cle API optionnelle de surcharge au niveau projet.",
+    "settings.toneGuide": "Contraintes de ton reutilisables dans les actions IA.",
+    "settings.structureWeight": "Poids de la structure dans le score qualite du chapitre.",
+  },
+};
 
-function tabClass(active: boolean): string {
-  return active
-    ? "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
-    : "rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100";
-}
+const UI_STRINGS: Record<
+  "fr" | "en",
+  {
+    workspaceHeading: string;
+    online: string;
+    offline: string;
+    queuedAi: string;
+    backToDashboard: string;
+    collapse: string;
+    expand: string;
+  }
+> = {
+  en: {
+    workspaceHeading: "Workspace",
+    online: "Online",
+    offline: "Offline",
+    queuedAi: "Queued AI tasks",
+    backToDashboard: "Back to dashboard",
+    collapse: "Collapse",
+    expand: "Expand",
+  },
+  fr: {
+    workspaceHeading: "Espace projet",
+    online: "En ligne",
+    offline: "Hors ligne",
+    queuedAi: "Taches IA en file",
+    backToDashboard: "Retour au tableau de bord",
+    collapse: "Replier",
+    expand: "Deplier",
+  },
+};
 
 function chapterLabel(chapter: Chapter): string {
-  return `Ch.${chapter.number} ${chapter.title.trim() || "Untitled chapter"}`;
+  return `Ch. ${chapter.number} · ${chapter.title.trim() || "Untitled chapter"}`;
 }
 
 function sceneLabel(scene: Scene): string {
@@ -150,6 +261,12 @@ function normalizeLookupKey(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+function matchesFilter(candidate: string, filterValue: string): boolean {
+  const normalized = filterValue.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return candidate.toLocaleLowerCase().includes(normalized);
+}
+
 function downloadArtifacts(prefix: string, content: Record<string, string>) {
   Object.entries(content).forEach(([name, value]) => {
     const extension = name.endsWith("checklist") ? "txt" : "md";
@@ -185,28 +302,56 @@ function plainTextWordCount(value: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
-const SCENE_FIELD_HELP = {
-  title: "Short working label for the scene. Use the dramatic turn or key event.",
-  description:
-    "What happens in the scene from start to finish. Focus on action, conflict, and outcome.",
-  location:
-    "Primary setting for the scene. Use a consistent place name to help continuity checks.",
-  characters:
-    "List the characters present in the scene, separated by commas.",
-  notes:
-    "Continuity anchors, subtext, props, reveals, POV constraints, or reminders for later scenes.",
-  draftText:
-    "A prose seed or beat outline that can be expanded into full scene draft text.",
-} as const;
+const SCENE_FIELD_HELP: Record<
+  "fr" | "en",
+  {
+    title: string;
+    description: string;
+    location: string;
+    characters: string;
+    notes: string;
+    draftText: string;
+  }
+> = {
+  en: {
+    title: "Short working label for the scene. Use the dramatic turn or key event.",
+    description:
+      "What happens in the scene from start to finish. Focus on action, conflict, and outcome.",
+    location:
+      "Primary setting for the scene. Use a consistent place name to help continuity checks.",
+    characters: "List the characters present in the scene, separated by commas.",
+    notes:
+      "Continuity anchors, subtext, props, reveals, POV constraints, or reminders for later scenes.",
+    draftText: "A prose seed or beat outline that can be expanded into full scene draft text.",
+  },
+  fr: {
+    title: "Libelle court de travail pour la scene. Utilisez le pivot dramatique principal.",
+    description:
+      "Resume de la scene du debut a la fin. Concentrez-vous sur action, conflit et resultat.",
+    location:
+      "Lieu principal de la scene. Gardez un nom coherent pour la verification de continuite.",
+    characters: "Listez les personnages presents, separes par des virgules.",
+    notes:
+      "Ancrages de continuite, sous-texte, objets, revelations, contraintes POV, rappels.",
+    draftText: "Base de prose ou beat outline pouvant etre developpee en scene complete.",
+  },
+};
+
+interface ProjectCompanionMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+}
 
 export default function WorkspaceClient({ projectId }: { projectId: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const activeProject = useProjectStore((state) => state.activeProject);
   const openProject = useProjectStore((state) => state.openProject);
   const saveProjectMeta = useProjectStore((state) => state.saveProjectMeta);
   const saveStoryBible = useProjectStore((state) => state.saveStoryBible);
   const saveChapter = useProjectStore((state) => state.saveChapter);
+  const saveChapters = useProjectStore((state) => state.saveChapters);
   const saveChapterTrackerReport = useProjectStore((state) => state.saveChapterTrackerReport);
   const addChapter = useProjectStore((state) => state.addChapter);
   const deleteChapter = useProjectStore((state) => state.deleteChapter);
@@ -249,7 +394,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const saveScope = useSettingsStore((state) => state.saveScope);
   const resetScope = useSettingsStore((state) => state.resetScope);
 
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("plan");
+  const { prefs: uiPrefs, setPrefs: setUiPrefs } = useWorkspaceUiPrefs(projectId);
+  const [projectLlmDraft, setProjectLlmDraft] = useState<LlmSettings | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string>("");
   const [focusMode, setFocusMode] = useState(false);
   const [readingMode, setReadingMode] = useState(false);
@@ -276,6 +422,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     useState<"idle" | "running" | "error">("idle");
   const [chapterDetailsAiError, setChapterDetailsAiError] = useState<string | null>(null);
   const [chapterDetailsAiMessage, setChapterDetailsAiMessage] = useState<string | null>(null);
+  const [bookPlanAiStatus, setBookPlanAiStatus] =
+    useState<"idle" | "generating" | "applying" | "error">("idle");
+  const [bookPlanAiError, setBookPlanAiError] = useState<string | null>(null);
+  const [bookPlanAiMessage, setBookPlanAiMessage] = useState<string | null>(null);
+  const [bookPlanPreview, setBookPlanPreview] =
+    useState<BookChapterPlanSuggestion | null>(null);
+  const [bookPlanMethodIds, setBookPlanMethodIds] = useState<Set<BookPlanMethodId>>(
+    () => new Set(BOOK_PLAN_METHODS.map((method) => method.id))
+  );
+  const [bookPlanAgentStage, setBookPlanAgentStage] = useState<string | null>(null);
   const [chapterTrackersAiStatus, setChapterTrackersAiStatus] =
     useState<"idle" | "running" | "error">("idle");
   const [chapterTrackersAiError, setChapterTrackersAiError] = useState<string | null>(null);
@@ -293,9 +449,55 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [sceneDraftAiSceneId, setSceneDraftAiSceneId] = useState<string | null>(null);
   const [sceneDraftAiError, setSceneDraftAiError] = useState<string | null>(null);
   const [sceneDraftAiMessage, setSceneDraftAiMessage] = useState<string | null>(null);
+  const [companionMessages, setCompanionMessages] = useState<ProjectCompanionMessage[]>([]);
+  const [companionInput, setCompanionInput] = useState("");
+  const [companionStatus, setCompanionStatus] = useState<"idle" | "running" | "error">("idle");
+  const [companionError, setCompanionError] = useState<string | null>(null);
   const [offline, setOffline] = useState(
     typeof navigator !== "undefined" ? !navigator.onLine : false
   );
+
+  const activeTab = uiPrefs.activeTab;
+  const projectLlmSettings = projectLlmDraft ?? resolved.settings.llm;
+  const fieldHelp = FIELD_HELP_TEXT[locale];
+  const uiText = UI_STRINGS[locale];
+  const sceneFieldHelp = SCENE_FIELD_HELP[locale];
+
+  function setActiveTab(tab: WorkspaceTab) {
+    setUiPrefs((previous) => ({
+      ...previous,
+      activeTab: tab,
+    }));
+  }
+
+  function setFilterValue<Key extends keyof WorkspaceFilterState>(key: Key, value: string) {
+    setUiPrefs((previous) => ({
+      ...previous,
+      filters: {
+        ...previous.filters,
+        [key]: value,
+      },
+    }));
+  }
+
+  function toggleCollapsed(section: WorkspaceCollapsibleSection) {
+    setUiPrefs((previous) => ({
+      ...previous,
+      collapsed: {
+        ...previous.collapsed,
+        [section]: !previous.collapsed[section],
+      },
+    }));
+  }
+
+  function toggleCompanion() {
+    setUiPrefs((previous) => ({
+      ...previous,
+      companionOpen: !previous.companionOpen,
+    }));
+  }
+
+  const companionOpen = uiPrefs.companionOpen;
 
   useEffect(() => {
     void openProject(projectId);
@@ -316,6 +518,46 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   const project = activeProject?.project;
   const projectIdValue = project?.id ?? "";
+  const tabs = useMemo(
+    () => [
+      {
+        id: "plan" as const,
+        label: t("workspace.plan"),
+        description: TAB_DESCRIPTIONS.plan[locale],
+      },
+      {
+        id: "bible" as const,
+        label: t("workspace.bible"),
+        description: TAB_DESCRIPTIONS.bible[locale],
+      },
+      {
+        id: "drafting" as const,
+        label: t("workspace.drafting"),
+        description: TAB_DESCRIPTIONS.drafting[locale],
+      },
+      {
+        id: "revision" as const,
+        label: t("workspace.revision"),
+        description: TAB_DESCRIPTIONS.revision[locale],
+      },
+      {
+        id: "publish" as const,
+        label: t("workspace.publish"),
+        description: TAB_DESCRIPTIONS.publish[locale],
+      },
+      {
+        id: "marketing" as const,
+        label: t("workspace.marketing"),
+        description: TAB_DESCRIPTIONS.marketing[locale],
+      },
+      {
+        id: "settings" as const,
+        label: t("workspace.settings"),
+        description: TAB_DESCRIPTIONS.settings[locale],
+      },
+    ],
+    [locale, t]
+  );
 
   const selectedChapter = useMemo(
     () =>
@@ -324,6 +566,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       null,
     [activeProject, selectedChapterId]
   );
+  const selectedChapterCompanionLabel = selectedChapter
+    ? chapterLabel(selectedChapter)
+    : "No chapter selected";
 
   useEffect(() => {
     if (!activeProject) return;
@@ -514,6 +759,121 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       .filter((item) => item.entries.length > 0);
   }, [activeProject, trackedEntityOptions]);
 
+  const filteredPlanChapters = useMemo(() => {
+    if (!activeProject) return [] as Chapter[];
+    const filterValue = uiPrefs.filters.chapterStructure;
+    return activeProject.chapters
+      .slice()
+      .sort((a, b) => a.number - b.number)
+      .filter((chapter) =>
+        matchesFilter(
+          [chapter.number, chapter.title, chapter.summary, chapter.status].join(" "),
+          filterValue
+        )
+      );
+  }, [activeProject, uiPrefs.filters.chapterStructure]);
+
+  const filteredDraftingChapters = useMemo(() => {
+    if (!activeProject) return [] as Chapter[];
+    const filterValue = uiPrefs.filters.draftingOutline;
+    return activeProject.chapters
+      .slice()
+      .sort((a, b) => a.number - b.number)
+      .filter((chapter) =>
+        matchesFilter(
+          [chapter.number, chapter.title, chapter.summary, chapter.status].join(" "),
+          filterValue
+        )
+      );
+  }, [activeProject, uiPrefs.filters.draftingOutline]);
+
+  const filteredCharacters = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.characters.filter((character) =>
+      matchesFilter(
+        [character.name, character.role, character.arc, character.notes].join(" "),
+        uiPrefs.filters.characters
+      )
+    );
+  }, [activeProject, uiPrefs.filters.characters]);
+
+  const filteredLocations = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.locations.filter((location) =>
+      matchesFilter(
+        [location.name, location.role, location.description, location.narrativeStatus].join(" "),
+        uiPrefs.filters.locations
+      )
+    );
+  }, [activeProject, uiPrefs.filters.locations]);
+
+  const filteredLoreEntries = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.loreEntries.filter((entry) =>
+      matchesFilter(
+        [entry.title, entry.category, entry.status, entry.description].join(" "),
+        uiPrefs.filters.lore
+      )
+    );
+  }, [activeProject, uiPrefs.filters.lore]);
+
+  const filteredTimeline = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.timeline
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .filter((event) =>
+        matchesFilter([event.label, event.details, event.impact].join(" "), uiPrefs.filters.timeline)
+      );
+  }, [activeProject, uiPrefs.filters.timeline]);
+
+  const filteredRelationships = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.relationships.filter((relationship) =>
+      matchesFilter(
+        [relationship.relationType, relationship.status, relationship.notes].join(" "),
+        uiPrefs.filters.relationships
+      )
+    );
+  }, [activeProject, uiPrefs.filters.relationships]);
+
+  const filteredEntityProgression = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.entityProgression.filter((entry) =>
+      matchesFilter(
+        [
+          entry.label,
+          entry.startState,
+          entry.endState,
+          entry.proposedDelta,
+          entry.validatedDelta,
+          entry.narrationStatus,
+        ].join(" "),
+        uiPrefs.filters.progression
+      )
+    );
+  }, [activeProject, uiPrefs.filters.progression]);
+
+  const filteredRevisionIssues = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.revisionIssues.filter((issue) =>
+      matchesFilter(
+        [issue.title, issue.description, issue.severity, issue.status].join(" "),
+        uiPrefs.filters.revisionIssues
+      )
+    );
+  }, [activeProject, uiPrefs.filters.revisionIssues]);
+
+  const filteredSnapshots = useMemo(() => {
+    if (!activeProject) return [];
+    return activeProject.snapshots.filter((snapshot) =>
+      matchesFilter(
+        [snapshot.label, new Date(snapshot.createdAt).toLocaleString()].join(" "),
+        uiPrefs.filters.snapshots
+      )
+    );
+  }, [activeProject, uiPrefs.filters.snapshots]);
+
   const pendingAiCount = useMemo(() => {
     if (!activeProject) return 0;
     return activeProject.aiActions.filter((action) => action.status === "pending").length;
@@ -592,9 +952,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   if (!project || !activeProject) {
     return (
-      <div className="min-h-screen">
+      <div className="app-page workspace-page">
         <TopNav />
-        <main className="mx-auto max-w-4xl px-4 py-8 text-sm text-slate-600">Loading workspace…</main>
+        <main className="shell-frame py-8 text-sm text-slate-600">Loading workspace...</main>
       </div>
     );
   }
@@ -778,6 +1138,91 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     });
   }
 
+  function clearCompanionConversation() {
+    setCompanionMessages([]);
+    setCompanionError(null);
+    setCompanionStatus("idle");
+  }
+
+  async function askProjectCompanion() {
+    const bundle = activeProject;
+    const question = companionInput.trim();
+    if (!bundle || !question || companionStatus === "running") return;
+
+    const userMessage: ProjectCompanionMessage = {
+      id: createId("companion-msg"),
+      role: "user",
+      text: question,
+    };
+    const history = [...companionMessages, userMessage].map(({ role, text }) => ({ role, text }));
+
+    setCompanionMessages((previous) => [...previous, userMessage]);
+    setCompanionInput("");
+    setCompanionStatus("running");
+    setCompanionError(null);
+
+    const context = buildProjectCompanionContext(bundle, selectedChapter?.id);
+    const input = buildProjectCompanionQuestionInput(question, history);
+
+    try {
+      const result = await runAiAction({
+        action: "brainstorm",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+
+      const assistantMessage: ProjectCompanionMessage = {
+        id: createId("companion-msg"),
+        role: "assistant",
+        text: result.text,
+      };
+      setCompanionMessages((previous) => [...previous, assistantMessage]);
+      setCompanionStatus("idle");
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter?.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: question,
+        outputPreview: result.text,
+        metadata: {
+          feature: "project_companion",
+          mode: "agentless",
+          selectedChapterId: selectedChapter?.id ?? null,
+        },
+      });
+
+      await openProject(projectIdValue);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Project companion failed";
+      setCompanionStatus("error");
+      setCompanionError(errorMessage);
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter?.id,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: question,
+        outputPreview: "",
+        metadata: {
+          feature: "project_companion",
+          mode: "agentless",
+          selectedChapterId: selectedChapter?.id ?? null,
+          error: errorMessage,
+        },
+      });
+
+      await openProject(projectIdValue);
+    }
+  }
+
   async function suggestStoryBible() {
     const bundle = activeProject;
     if (!bundle) return;
@@ -793,6 +1238,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         action: "brainstorm",
         input,
         context,
+        responseFormat: STORY_BIBLE_RESPONSE_FORMAT,
+        temperature: 0.1,
+        maxTokens: 1600,
         settings: resolved.settings,
       });
       const parsed = parseStoryBibleSuggestion(result.text);
@@ -869,6 +1317,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         action: "brainstorm",
         input,
         context,
+        responseFormat: STORY_WORLD_RESPONSE_FORMAT,
+        temperature: 0.1,
+        maxTokens: 3200,
         settings: resolved.settings,
       });
       const parsed = parseStoryWorldSuggestion(result.text);
@@ -1101,6 +1552,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         action: "brainstorm",
         input,
         context,
+        responseFormat: CHAPTER_DETAILS_RESPONSE_FORMAT,
+        temperature: 0.1,
+        maxTokens: 1800,
         settings: resolved.settings,
       });
       const parsed = parseChapterDetailsSuggestion(result.text);
@@ -1170,6 +1624,318 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
+  function toggleBookPlanMethod(methodId: BookPlanMethodId) {
+    setBookPlanMethodIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(methodId)) {
+        if (next.size === 1) return previous; // keep at least one method engaged
+        next.delete(methodId);
+      } else {
+        next.add(methodId);
+      }
+      return next;
+    });
+  }
+
+  async function generateBookChapterPlan() {
+    if (!activeProject) return;
+
+    const chapterCount = activeProject.chapters.length;
+    if (chapterCount === 0) {
+      setBookPlanAiStatus("error");
+      setBookPlanAiError("Add at least one chapter before generating the book architecture.");
+      return;
+    }
+
+    const selectedMethods = BOOK_PLAN_METHODS.filter((method) =>
+      bookPlanMethodIds.has(method.id)
+    );
+    if (selectedMethods.length === 0) {
+      setBookPlanAiStatus("error");
+      setBookPlanAiError("Select at least one narrative method before generating the architecture.");
+      return;
+    }
+
+    const input = buildBookChapterPlanInput(activeProject);
+    const lockedChapterNumbers = new Set(
+      activeProject.chapters
+        .filter((chapter) => chapter.aiLocked)
+        .map((chapter) => chapter.number)
+    );
+    // Floor kept high so reasoning models (e.g. gpt-oss) have room to emit the
+    // full structured plan after their hidden reasoning instead of truncating.
+    const maxTokens = Math.min(12000, Math.max(8000, chapterCount * 700));
+
+    setBookPlanAiStatus("generating");
+    setBookPlanAiError(null);
+    setBookPlanAiMessage(null);
+    setBookPlanPreview(null);
+    setBookPlanAgentStage(
+      selectedMethods.length === 1
+        ? `Running the ${selectedMethods[0].role} agent…`
+        : `Running ${selectedMethods.length} method agents in parallel…`
+    );
+
+    try {
+      // Phase 1 — run one specialist agent per selected method in parallel.
+      const settled = await Promise.allSettled(
+        selectedMethods.map((method) =>
+          runAiAction({
+            action: "brainstorm",
+            input,
+            context: buildBookChapterPlanMethodContext(chapterCount, method.id),
+            responseFormat: createBookChapterPlanResponseFormat(chapterCount),
+            temperature: 0.1,
+            maxTokens,
+            settings: resolved.settings,
+          }).then((result) => ({ method, result }))
+        )
+      );
+
+      const candidates = settled.map((outcome, index) => {
+        const method = selectedMethods[index];
+        if (outcome.status !== "fulfilled") {
+          return {
+            method,
+            result: null as AiRunResult | null,
+            parsed: null as BookChapterPlanSuggestion | null,
+            error:
+              outcome.reason instanceof Error
+                ? outcome.reason.message
+                : "Method agent failed.",
+          };
+        }
+        const parsed = parseBookChapterPlanSuggestion(
+          outcome.value.result.text,
+          chapterCount,
+          lockedChapterNumbers
+        );
+        return {
+          method,
+          result: outcome.value.result,
+          parsed,
+          error: parsed ? null : "Plan did not validate against the schema.",
+        };
+      });
+
+      // Log every specialist call when more than one ran, so the parallel
+      // fan-out is visible in the AI action history.
+      if (selectedMethods.length > 1) {
+        for (const candidate of candidates) {
+          await logAiAction({
+            projectId: projectIdValue,
+            action: "brainstorm",
+            status: candidate.result && candidate.parsed ? "completed" : "failed",
+            model: candidate.result?.model ?? resolved.settings.llm.model,
+            providerBaseUrl: candidate.result?.baseUrl ?? resolved.settings.llm.baseUrl,
+            inputPreview: input,
+            outputPreview: candidate.result?.text ?? "",
+            metadata: {
+              feature: "book_chapter_plan_method",
+              method: candidate.method.id,
+              methodTitle: candidate.method.title,
+              chapterCount,
+              error: candidate.error ?? undefined,
+            },
+          });
+        }
+      }
+
+      const validCandidates = candidates.filter(
+        (candidate): candidate is typeof candidate & {
+          result: AiRunResult;
+          parsed: BookChapterPlanSuggestion;
+        } => Boolean(candidate.result && candidate.parsed)
+      );
+
+      if (validCandidates.length === 0) {
+        throw new Error(
+          `No method agent returned a complete, unique plan for all ${chapterCount} chapters. Generate again.`
+        );
+      }
+
+      // Phase 2 — when several candidates survive, a synthesis agent merges them.
+      let finalResult: AiRunResult = validCandidates[0].result;
+      let finalParsed: BookChapterPlanSuggestion = validCandidates[0].parsed;
+      let merged = false;
+
+      if (validCandidates.length > 1) {
+        setBookPlanAgentStage(
+          `Merging ${validCandidates.length} method agents into one architecture…`
+        );
+        const mergeResult = await runAiAction({
+          action: "brainstorm",
+          input: buildBookChapterPlanMergeInput(
+            input,
+            validCandidates.map((candidate) => ({
+              method: candidate.method,
+              planJson: candidate.result.text,
+            }))
+          ),
+          context: buildBookChapterPlanMergeContext(
+            chapterCount,
+            validCandidates.map((candidate) => candidate.method.id)
+          ),
+          responseFormat: createBookChapterPlanResponseFormat(chapterCount),
+          temperature: 0.1,
+          maxTokens,
+          settings: resolved.settings,
+        });
+        const parsedMerge = parseBookChapterPlanSuggestion(
+          mergeResult.text,
+          chapterCount,
+          lockedChapterNumbers
+        );
+        if (parsedMerge) {
+          finalResult = mergeResult;
+          finalParsed = parsedMerge;
+          merged = true;
+        }
+        // If the merge fails to validate, keep the first valid specialist plan.
+      }
+
+      const chaptersByNumber = new Map(
+        activeProject.chapters.map((chapter) => [chapter.number, chapter])
+      );
+      const protectedPlan: BookChapterPlanSuggestion = {
+        ...finalParsed,
+        chapters: finalParsed.chapters.map((suggestion) => {
+          const existing = chaptersByNumber.get(suggestion.chapterNumber);
+          if (!existing?.aiLocked) return suggestion;
+
+          return {
+            ...suggestion,
+            title: existing.title,
+            summary: existing.summary,
+            objectives: existing.objectives,
+            hook: existing.hook,
+            storySoFar: existing.storySoFar,
+            notes: existing.notes,
+            wordCountTarget: existing.wordCountTarget,
+          };
+        }),
+      };
+
+      const methodLabel = validCandidates
+        .map((candidate) => candidate.method.title)
+        .join(" + ");
+
+      await logAiAction({
+        projectId: projectIdValue,
+        action: finalResult.action,
+        status: "completed",
+        model: finalResult.model,
+        providerBaseUrl: finalResult.baseUrl,
+        inputPreview: input,
+        outputPreview: finalResult.text,
+        metadata: {
+          feature: "book_chapter_plan",
+          chapterCount,
+          lockedChapterCount: activeProject.chapters.filter((chapter) => chapter.aiLocked)
+            .length,
+          methods: validCandidates.map((candidate) => candidate.method.id),
+          candidateCount: validCandidates.length,
+          merged,
+          researchBasis: BOOK_PLAN_RESEARCH_SOURCES.map((source) => source.url),
+        },
+      });
+
+      setBookPlanPreview(protectedPlan);
+      setBookPlanAgentStage(null);
+      setBookPlanAiStatus("idle");
+      setBookPlanAiMessage(
+        merged
+          ? `Merged ${validCandidates.length} method agents (${methodLabel}) into one architecture for ${chapterCount} chapters. Review the causal turns and reveal cadence before applying it.`
+          : `Architecture generated for ${chapterCount} chapters via ${methodLabel}. Review the causal turns and reveal cadence before applying it.`
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Whole-book architecture generation failed.";
+      setBookPlanAgentStage(null);
+      setBookPlanAiStatus("error");
+      setBookPlanAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "book_chapter_plan",
+          chapterCount,
+          methods: selectedMethods.map((method) => method.id),
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyBookChapterPlan() {
+    if (!activeProject || !bookPlanPreview) return;
+
+    const chapters = activeProject.chapters.slice().sort((a, b) => a.number - b.number);
+    const suggestionsByNumber = new Map(
+      bookPlanPreview.chapters.map((chapter) => [chapter.chapterNumber, chapter])
+    );
+
+    if (
+      chapters.length !== bookPlanPreview.chapters.length ||
+      chapters.some((chapter) => !suggestionsByNumber.has(chapter.number))
+    ) {
+      setBookPlanAiStatus("error");
+      setBookPlanAiError(
+        "The chapter list changed after this preview was generated. Generate a fresh architecture before applying it."
+      );
+      return;
+    }
+
+    setBookPlanAiStatus("applying");
+    setBookPlanAiError(null);
+    setBookPlanAiMessage(null);
+
+    try {
+      const lockedCount = chapters.filter((chapter) => chapter.aiLocked).length;
+      const chapterUpdates = chapters.flatMap((chapter) => {
+        if (chapter.aiLocked) return [];
+
+        const suggestion = suggestionsByNumber.get(chapter.number);
+        if (!suggestion) return [];
+
+        return [
+          {
+            ...chapter,
+            title: suggestion.title,
+            summary: suggestion.summary,
+            objectives: suggestion.objectives,
+            hook: suggestion.hook,
+            storySoFar: suggestion.storySoFar,
+            notes: suggestion.notes || chapter.notes,
+            wordCountTarget: suggestion.wordCountTarget,
+          },
+        ];
+      });
+
+      await saveChapters(chapterUpdates);
+
+      setBookPlanPreview(null);
+      setBookPlanAiStatus("idle");
+      setBookPlanAiMessage(
+        `Applied chapter details to ${chapterUpdates.length} unlocked chapters. ${lockedCount} locked chapters and all draft content were preserved.`
+      );
+    } catch (error) {
+      setBookPlanAiStatus("error");
+      setBookPlanAiError(
+        error instanceof Error
+          ? error.message
+          : "The chapter architecture could not be applied."
+      );
+      await openProject(projectIdValue);
+    }
+  }
+
   async function computeSelectedChapterTrackers() {
     if (!activeProject || !selectedChapter) return;
 
@@ -1184,6 +1950,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         action: "consistency_check",
         input,
         context,
+        responseFormat: CHAPTER_TRACKERS_RESPONSE_FORMAT,
+        temperature: 0.1,
+        maxTokens: 2600,
         settings: resolved.settings,
       });
       const parsed = parseChapterTrackerComputation(result.text, activeProject);
@@ -1287,6 +2056,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         input,
         context,
         styleProfile: "Manuscript-ready chapter prose with clean scene transitions",
+        maxTokens: Math.min(
+          12000,
+          Math.max(
+            resolved.settings.llm.maxTokens,
+            (selectedChapter.wordCountTarget || activeProject.goal.chapterWords || 2500) * 2
+          )
+        ),
         settings: resolved.settings,
       });
 
@@ -1373,6 +2149,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         action: "brainstorm",
         input,
         context,
+        responseFormat: SCENE_CARDS_RESPONSE_FORMAT,
+        temperature: 0.1,
+        maxTokens: 2600,
         settings: resolved.settings,
       });
       const parsed = parseSceneCardSuggestions(result.text);
@@ -1515,9 +2294,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
-  const mainClass = focusMode
-    ? "grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]"
-    : "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]";
+  const mainClass = `drafting-layout${focusMode ? " drafting-layout--focus" : ""}`;
 
   function renderSelectedChapterDetails(options?: {
     containerClassName?: string;
@@ -1530,7 +2307,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
     return (
       <div className={containerClassName}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="selected-chapter-details__header">
           <h3 className="text-lg font-semibold text-slate-900">Selected chapter details</h3>
           <button
             onClick={() => void autocompleteSelectedChapterDetails()}
@@ -1547,9 +2324,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           <p className="mt-3 text-sm text-rose-700">{chapterDetailsAiError}</p>
         )}
         {selectedChapter ? (
-          <div className="mt-3 grid gap-3">
+          <div className="chapter-details-form">
             <label className="grid gap-1 text-sm text-slate-700">
-              Title
+              <FieldLabel label="Title" help={fieldHelp["project.title"]} />
               <input
                 value={selectedChapter.title}
                 onChange={(event) =>
@@ -1558,11 +2335,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     title: event.target.value,
                   })
                 }
-                className="rounded border border-slate-300 px-2 py-1"
+                className="ui-input ui-input-default"
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              Summary
+              <FieldLabel label="Summary" help={fieldHelp["chapter.summary"]} />
               <textarea
                 rows={3}
                 value={selectedChapter.summary}
@@ -1572,12 +2349,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     summary: event.target.value,
                   })
                 }
-                className="rounded border border-slate-300 px-2 py-1"
+                className="ui-input ui-input-wide"
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              Objectives (comma separated)
-              <input
+              <FieldLabel
+                label="Objectives (comma separated)"
+                help={fieldHelp["chapter.objectives"]}
+              />
+              <textarea
+                rows={2}
                 value={selectedChapter.objectives.join(", ")}
                 onChange={(event) =>
                   void saveChapter({
@@ -1588,11 +2369,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       .filter(Boolean),
                   })
                 }
-                className="rounded border border-slate-300 px-2 py-1"
+                className="ui-input ui-input-default"
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              Hook
+              <FieldLabel label="Hook" help={fieldHelp["chapter.hook"]} />
               <textarea
                 rows={2}
                 value={selectedChapter.hook}
@@ -1602,11 +2383,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     hook: event.target.value,
                   })
                 }
-                className="rounded border border-slate-300 px-2 py-1"
+                className="ui-input ui-input-default"
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              Story so far
+              <FieldLabel label="Story so far" help={fieldHelp["chapter.storySoFar"]} />
               <textarea
                 rows={2}
                 value={selectedChapter.storySoFar}
@@ -1616,12 +2397,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     storySoFar: event.target.value,
                   })
                 }
-                className="rounded border border-slate-300 px-2 py-1"
+                className="ui-input ui-input-default"
               />
             </label>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="chapter-details-form__pair">
               <label className="grid gap-1 text-sm text-slate-700">
-                Status
+                <FieldLabel label="Status" />
                 <select
                   value={selectedChapter.status}
                   onChange={(event) =>
@@ -1630,7 +2411,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       status: event.target.value as Chapter["status"],
                     })
                   }
-                  className="rounded border border-slate-300 px-2 py-1"
+                  className="ui-input ui-input-default"
                 >
                   <option value="draft">Draft</option>
                   <option value="in-progress">In progress</option>
@@ -1639,7 +2420,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 </select>
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Word target
+                <FieldLabel label="Word target" />
                 <input
                   type="number"
                   min={0}
@@ -1650,11 +2431,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       wordCountTarget: Number(event.target.value) || 0,
                     })
                   }
-                  className="rounded border border-slate-300 px-2 py-1"
+                  className="ui-input ui-input-default"
                 />
               </label>
             </div>
-            <div className="flex flex-wrap gap-2 pt-2">
+            <div className="chapter-details-form__actions">
               {showOpenInDraftingButton && (
                 <button
                   onClick={() => setActiveTab("drafting")}
@@ -1681,47 +2462,428 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="min-h-screen pb-12">
+    <div className="app-page workspace-page">
       <TopNav />
 
-      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nav.workspace")}</p>
-            <h1 className="text-2xl font-bold text-slate-900">{project.title}</h1>
-            <p className="text-sm text-slate-600">
-              {project.genre} · {project.audience} · {project.targetWordCount.toLocaleString()} words target
-            </p>
-          </div>
+      <main className="shell-frame workspace-frame">
+        <WorkspaceContextHeader
+          workspaceLabel={t("nav.workspace")}
+          title={project.title}
+          meta={`${project.genre} · ${project.audience} · ${project.targetWordCount.toLocaleString()} words target`}
+          offline={offline}
+          pendingAiCount={pendingAiCount}
+          labels={{
+            online: uiText.online,
+            offline: uiText.offline,
+            queuedAi: uiText.queuedAi,
+            backToDashboard: uiText.backToDashboard,
+            companion: "Companion",
+          }}
+          onOpenCompanion={companionOpen ? undefined : toggleCompanion}
+        />
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className={`rounded-full px-2 py-1 font-semibold ${offline ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
-              {offline ? "Offline" : "Online"}
-            </span>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-              Queued AI tasks: {pendingAiCount}
-            </span>
-            <Link href="/" className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50">
-              Back to dashboard
-            </Link>
-          </div>
-        </div>
-
-        <div className="mb-4 flex flex-wrap gap-2">
-          {TABS.map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={tabClass(activeTab === tab.id)}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <div className="workspace-grid">
+          <WorkspaceTabNavigation
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            heading={uiText.workspaceHeading}
+          />
+          <div className="workspace-main">
 
         {activeTab === "plan" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card overflow-hidden p-0 lg:col-span-2">
+              <div className="border-b border-slate-200 bg-[linear-gradient(115deg,rgba(15,118,110,0.11),rgba(255,255,255,0)_48%)] p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-5">
+                  <div className="max-w-3xl">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-800">
+                      Whole-book architecture
+                    </p>
+                    <h2 className="mt-2 text-balance text-2xl font-semibold tracking-tight text-slate-950">
+                      Build every chapter as one paced causal chain
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                      Generate a reviewable plan for all {activeProject.chapters.length} chapters.
+                      Pick the narrative methods below: one specialist agent runs per method in
+                      parallel, then a synthesis agent merges them into a single paced causal chain
+                      that staggers clues, reversals, disasters, and payoff.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void generateBookChapterPlan()}
+                    disabled={
+                      bookPlanAiStatus === "generating" ||
+                      bookPlanAiStatus === "applying" ||
+                      bookPlanMethodIds.size === 0 ||
+                      activeProject.chapters.length === 0
+                    }
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {bookPlanAiStatus === "generating" && (
+                      <span
+                        className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
+                        aria-hidden
+                      />
+                    )}
+                    {bookPlanAiStatus === "generating"
+                      ? bookPlanAgentStage ?? "Building architecture…"
+                      : bookPlanPreview
+                        ? "Generate a new architecture"
+                        : bookPlanMethodIds.size > 1
+                          ? `Generate with ${bookPlanMethodIds.size} method agents`
+                          : "Generate whole-book architecture"}
+                  </button>
+                </div>
+
+                <div className="mt-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-800">
+                      Method agents
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {bookPlanMethodIds.size} of {BOOK_PLAN_METHODS.length} engaged
+                    </p>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label="Narrative methods for the planning agents"
+                    className="mt-2 grid gap-2 xl:grid-cols-3"
+                  >
+                    {BOOK_PLAN_METHODS.map((method) => {
+                      const selected = bookPlanMethodIds.has(method.id);
+                      const lastSelected = selected && bookPlanMethodIds.size === 1;
+                      return (
+                        <div
+                          key={method.id}
+                          className={`flex flex-col rounded-xl border px-4 py-3 text-left shadow-sm transition ${
+                            selected
+                              ? "border-teal-400 bg-white ring-1 ring-teal-200"
+                              : "border-slate-200/90 bg-white/70"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleBookPlanMethod(method.id)}
+                            aria-pressed={selected}
+                            disabled={lastSelected}
+                            title={
+                              lastSelected
+                                ? "Keep at least one method engaged"
+                                : selected
+                                  ? `Disable ${method.title}`
+                                  : `Enable ${method.title}`
+                            }
+                            className="flex flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed"
+                          >
+                            <span
+                              aria-hidden
+                              className={`mt-0.5 flex size-5 flex-none items-center justify-center rounded-md border text-[11px] font-bold ${
+                                selected
+                                  ? "border-teal-600 bg-teal-600 text-white"
+                                  : "border-slate-300 bg-white text-transparent"
+                              }`}
+                            >
+                              ✓
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-slate-900">
+                                {method.title}
+                              </span>
+                              <span className="mt-0.5 block text-xs font-medium text-teal-800">
+                                {method.role}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-slate-500">
+                                {method.author}
+                              </span>
+                              <span className="mt-2 block text-xs leading-5 text-slate-600">
+                                {method.summary}
+                              </span>
+                            </span>
+                          </button>
+                          <a
+                            href={method.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 self-start text-xs font-medium text-teal-700 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                          >
+                            Reference ↗
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 sm:p-6">
+                <div aria-live="polite">
+                  {bookPlanAiError && (
+                    <div
+                      role="alert"
+                      className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+                    >
+                      {bookPlanAiError}
+                    </div>
+                  )}
+                  {bookPlanAiMessage && (
+                    <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                      {bookPlanAiMessage}
+                    </div>
+                  )}
+                  {bookPlanAiStatus === "generating" && bookPlanAgentStage && (
+                    <div className="mb-4 flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-800">
+                      <span
+                        className="size-4 animate-spin rounded-full border-2 border-teal-300 border-t-teal-700 motion-reduce:animate-none"
+                        aria-hidden
+                      />
+                      {bookPlanAgentStage}
+                    </div>
+                  )}
+                </div>
+
+                {!bookPlanPreview ? (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      {
+                        label: "Quarter 1",
+                        title: "Promise and commitment",
+                        detail:
+                          "Plant the central question, then force commitment through the first disaster.",
+                      },
+                      {
+                        label: "Quarter 2",
+                        title: "Complication and reversal",
+                        detail:
+                          "Make attempted solutions create harder problems and reframe evidence at midpoint.",
+                      },
+                      {
+                        label: "Quarter 3",
+                        title: "Escalation and crisis",
+                        detail:
+                          "Converge clues, close escape routes, and make the third disaster causally earned.",
+                      },
+                      {
+                        label: "Final quarter",
+                        title: "Climax and consequence",
+                        detail:
+                          "Pay off the dramatic question through action, then show the resulting new state.",
+                      },
+                    ].map((stage) => (
+                      <div
+                        key={stage.label}
+                        className="rounded-xl border border-slate-200 bg-slate-50/80 p-4"
+                      >
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-800">
+                          {stage.label}
+                        </p>
+                        <h3 className="mt-2 text-base font-semibold text-slate-900">
+                          {stage.title}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{stage.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                          Review before applying
+                        </p>
+                        <h3 className="mt-1 text-xl font-semibold text-slate-950">
+                          Proposed narrative architecture
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {bookPlanPreview.chapters.length} planned chapters ·{" "}
+                          {
+                            activeProject.chapters.filter((chapter) => chapter.aiLocked)
+                              .length
+                          }{" "}
+                          locked anchors ·{" "}
+                          {bookPlanPreview.chapters
+                            .reduce((total, chapter) => total + chapter.wordCountTarget, 0)
+                            .toLocaleString()}{" "}
+                          target words
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBookPlanPreview(null);
+                            setBookPlanAiError(null);
+                            setBookPlanAiMessage(null);
+                          }}
+                          disabled={bookPlanAiStatus === "applying"}
+                          className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Discard preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void applyBookChapterPlan()}
+                          disabled={bookPlanAiStatus === "applying"}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {bookPlanAiStatus === "applying" && (
+                            <span
+                              className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
+                              aria-hidden
+                            />
+                          )}
+                          {bookPlanAiStatus === "applying"
+                            ? "Applying chapter details…"
+                            : "Apply to unlocked chapters"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <dl className="mt-5 grid gap-3 xl:grid-cols-4">
+                      {[
+                        [
+                          "Central dramatic question",
+                          bookPlanPreview.strategy.centralDramaticQuestion,
+                        ],
+                        ["Ending promise", bookPlanPreview.strategy.endingPromise],
+                        ["Escalation logic", bookPlanPreview.strategy.escalationLogic],
+                        ["Reveal cadence", bookPlanPreview.strategy.revealCadence],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="rounded-xl border border-slate-200 bg-white p-4"
+                        >
+                          <dt className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                            {label}
+                          </dt>
+                          <dd className="mt-2 break-words text-sm leading-6 text-slate-800">
+                            {value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <ol className="mt-5 grid items-start gap-3 xl:grid-cols-2">
+                      {bookPlanPreview.chapters.map((chapter) => {
+                        const existingChapter = activeProject.chapters.find(
+                          (item) => item.number === chapter.chapterNumber
+                        );
+
+                        return (
+                          <li
+                            key={chapter.chapterNumber}
+                            className="book-plan-preview-card rounded-2xl border border-slate-200 bg-slate-50/65 p-4"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-md bg-slate-950 px-2 py-1 text-xs font-bold tabular-nums text-white">
+                                    Chapter {chapter.chapterNumber}
+                                  </span>
+                                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-teal-800">
+                                    {chapter.architecture.phase}
+                                  </span>
+                                  {existingChapter?.aiLocked && (
+                                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                                      Locked anchor
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="mt-3 text-lg font-semibold leading-tight text-slate-950">
+                                  {chapter.title || "Untitled locked chapter"}
+                                </h4>
+                              </div>
+                              <div
+                                className="flex items-center gap-1"
+                                aria-label={`Tension ${chapter.tensionLevel} out of 5`}
+                              >
+                                <span className="mr-1 text-xs font-semibold text-slate-600">
+                                  Tension {chapter.tensionLevel}/5
+                                </span>
+                                {Array.from({ length: 5 }, (_, index) => (
+                                  <span
+                                    key={index}
+                                    className={`h-2.5 w-2.5 rounded-full ${
+                                      index < chapter.tensionLevel
+                                        ? "bg-amber-500"
+                                        : "bg-slate-200"
+                                    }`}
+                                    aria-hidden
+                                  />
+                                ))}
+                              </div>
+                            </div>
+
+                            <p className="mt-3 break-words text-sm leading-6 text-slate-700">
+                              {chapter.summary}
+                            </p>
+
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                                  Decisive turn
+                                </p>
+                                <p className="mt-1.5 text-sm leading-5 text-slate-700">
+                                  {chapter.decisiveTurn}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                                  Reveal step
+                                </p>
+                                <p className="mt-1.5 text-sm leading-5 text-slate-700">
+                                  {chapter.revealStep}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                                  Chapter objectives
+                                </p>
+                                <ul className="mt-1.5 space-y-1 text-sm leading-5 text-slate-700">
+                                  {chapter.objectives.map((objective) => (
+                                    <li key={objective}>- {objective}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="sm:text-right">
+                                <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                                  Target
+                                </p>
+                                <p className="mt-1.5 text-sm font-semibold tabular-nums text-slate-900">
+                                  {chapter.wordCountTarget.toLocaleString()} words
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 border-t border-slate-200 pt-3">
+                              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                                End hook and open loop
+                              </p>
+                              <p className="mt-1.5 text-sm leading-5 text-slate-700">
+                                {chapter.hook}
+                              </p>
+                              <p className="mt-1 text-sm leading-5 text-slate-600">
+                                {chapter.openLoop}
+                              </p>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Project metadata</h2>
               <div className="mt-4 grid gap-3">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Title
+                  <FieldLabel label="Title" help={fieldHelp["project.title"]} />
                   <input
                     value={project.title}
                     onChange={(event) =>
@@ -1729,11 +2891,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         title: event.target.value,
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-default"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Synopsis
+                  <FieldLabel label="Synopsis" help={fieldHelp["project.synopsis"]} />
                   <textarea
                     rows={4}
                     value={project.synopsis}
@@ -1742,13 +2904,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         synopsis: event.target.value,
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-wide"
                   />
                 </label>
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Continuity conflicts</h2>
               {continuityConflicts.length === 0 ? (
                 <p className="mt-3 text-sm text-emerald-700">No continuity conflicts detected.</p>
@@ -1766,7 +2928,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-slate-900">Chapter structure</h2>
                 <button
@@ -1777,111 +2939,136 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 </button>
               </div>
 
+              <div className="mb-4">
+                <FilterInput
+                  id="filter-plan-chapters"
+                  label="Search chapters"
+                  value={uiPrefs.filters.chapterStructure}
+                  onChange={(value) => setFilterValue("chapterStructure", value)}
+                  help="Filter by chapter number, title, summary, or status."
+                  placeholder="Find a chapter by title, summary, or status"
+                />
+              </div>
+
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
                 <div className="space-y-3">
-                  {activeProject.chapters.length === 0 && (
+                  {filteredPlanChapters.length === 0 && (
                     <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
                       This project starts with an empty structure. Add chapters only where you need them.
                     </div>
                   )}
 
-                  {activeProject.chapters
-                    .sort((a, b) => a.number - b.number)
-                    .map((chapter) => {
-                      const scenes = activeProject.scenes.filter((scene) => scene.chapterId === chapter.id);
-                      const selected = selectedChapter?.id === chapter.id;
-                      return (
-                        <div
-                          key={chapter.id}
-                          className={`rounded-xl border p-4 ${
-                            selected ? "border-teal-300 bg-teal-50/60" : "border-slate-200"
-                          }`}
-                        >
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                  {filteredPlanChapters.map((chapter) => {
+                    const scenes = activeProject.scenes.filter((scene) => scene.chapterId === chapter.id);
+                    const selected = selectedChapter?.id === chapter.id;
+                    return (
+                      <div
+                        key={chapter.id}
+                        className={`rounded-2xl border p-4 ${
+                          selected
+                            ? "border-teal-300 bg-teal-50/70 shadow-[0_8px_18px_rgba(20,184,166,0.12)]"
+                            : "border-slate-200 bg-white"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <button
+                            onClick={() => setSelectedChapterId(chapter.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <p className="text-base font-semibold leading-tight text-slate-900">
+                              {chapterLabel(chapter)}
+                            </p>
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-600">
+                              {chapter.summary || "No summary yet"}
+                            </p>
+                          </button>
+                          <span className="ui-chip">{chapter.status}</span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
+                          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white">
                             <button
-                              onClick={() => setSelectedChapterId(chapter.id)}
-                              className="min-w-0 text-left"
+                              onClick={() => void reorderChapter(chapter.number, chapter.number - 1)}
+                              className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                             >
-                              <p className="text-sm font-semibold text-slate-900">{chapterLabel(chapter)}</p>
-                              <p className="text-xs text-slate-600">
-                                {chapter.summary || "No summary yet"}
-                              </p>
+                              Up
                             </button>
-
-                            <div className="flex flex-wrap items-center gap-1">
-                              <button
-                                onClick={() => void reorderChapter(chapter.number, chapter.number - 1)}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs"
-                              >
-                                Up
-                              </button>
-                              <button
-                                onClick={() => void reorderChapter(chapter.number, chapter.number + 1)}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs"
-                              >
-                                Down
-                              </button>
-                              <button
-                                onClick={() =>
-                                  void saveChapter({
-                                    ...chapter,
-                                    aiLocked: !chapter.aiLocked,
-                                  })
-                                }
-                                className={`rounded px-2 py-1 text-xs ${
-                                  chapter.aiLocked
-                                    ? "border border-rose-300 bg-rose-50 text-rose-700"
-                                    : "border border-slate-300 text-slate-700"
-                                }`}
-                              >
-                                {chapter.aiLocked ? "AI Locked" : "AI Unlocked"}
-                              </button>
-                              <button
-                                onClick={() => void createManualScene(chapter.id)}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs"
-                                title="Create a blank scene card in this chapter and open it in the editor."
-                              >
-                                Add scene
-                              </button>
-                              <button
-                                onClick={() => void deleteChapter(chapter.id)}
-                                className="rounded border border-rose-300 px-2 py-1 text-xs text-rose-700"
-                              >
-                                Delete
-                              </button>
-                            </div>
+                            <span className="w-px bg-slate-300" aria-hidden />
+                            <button
+                              onClick={() => void reorderChapter(chapter.number, chapter.number + 1)}
+                              className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              Down
+                            </button>
                           </div>
+                          <button
+                            onClick={() =>
+                              void saveChapter({
+                                ...chapter,
+                                aiLocked: !chapter.aiLocked,
+                              })
+                            }
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                              chapter.aiLocked
+                                ? "border-rose-300 bg-rose-50 text-rose-700"
+                                : "border-slate-300 bg-white text-slate-700"
+                            }`}
+                          >
+                            {chapter.aiLocked ? "AI Locked" : "AI Unlocked"}
+                          </button>
+                          <button
+                            onClick={() => void createManualScene(chapter.id)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                            title="Create a blank scene card in this chapter and open it in the editor."
+                          >
+                            Add scene
+                          </button>
+                          <button
+                            onClick={() => void deleteChapter(chapter.id)}
+                            className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
 
-                          <div className="space-y-1 pl-3">
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                            Scenes
+                          </p>
+                          <div className="space-y-2">
                             {scenes.length === 0 && (
-                              <p className="text-xs text-slate-500">No scenes in this chapter yet.</p>
+                              <p className="text-sm text-slate-500">No scenes in this chapter yet.</p>
                             )}
                             {scenes
                               .sort((a, b) => a.order - b.order)
                               .map((scene) => (
                                 <div
                                   key={scene.id}
-                                  className="flex items-center justify-between gap-2 text-xs text-slate-600"
+                                  className="grid items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700 sm:grid-cols-[minmax(0,1fr)_auto]"
                                 >
-                                  <span>
+                                  <span className="truncate">
                                     {scene.order}. {sceneLabel(scene)}
                                   </span>
-                                  <div className="flex items-center gap-1">
+                                  <div className="inline-flex items-center gap-1">
                                     <button
-                                      onClick={() => void reorderScene(chapter.id, scene.order, scene.order - 1)}
-                                      className="rounded border border-slate-300 px-1.5 py-0.5"
+                                      onClick={() =>
+                                        void reorderScene(chapter.id, scene.order, scene.order - 1)
+                                      }
+                                      className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700"
                                     >
                                       Up
                                     </button>
                                     <button
-                                      onClick={() => void reorderScene(chapter.id, scene.order, scene.order + 1)}
-                                      className="rounded border border-slate-300 px-1.5 py-0.5"
+                                      onClick={() =>
+                                        void reorderScene(chapter.id, scene.order, scene.order + 1)
+                                      }
+                                      className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700"
                                     >
                                       Down
                                     </button>
                                     <button
                                       onClick={() => void deleteScene(scene.id)}
-                                      className="rounded border border-rose-300 px-1.5 py-0.5 text-rose-700"
+                                      className="rounded border border-rose-300 bg-white px-2 py-0.5 text-xs font-semibold text-rose-700"
                                     >
                                       Delete
                                     </button>
@@ -1890,14 +3077,24 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                               ))}
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {renderSelectedChapterDetails({
-                  containerClassName: "rounded-xl border border-slate-200 bg-slate-50 p-4",
-                  showOpenInDraftingButton: true,
-                })}
+                <CollapsibleCard
+                  title="Chapter details panel"
+                  subtitle="Guided metadata and chapter-level controls."
+                  collapsed={uiPrefs.collapsed.planChapterDetails}
+                  onToggle={() => toggleCollapsed("planChapterDetails")}
+                  collapseLabel={uiText.collapse}
+                  expandLabel={uiText.expand}
+                >
+                  {renderSelectedChapterDetails({
+                    containerClassName: "rounded-xl border border-slate-200 bg-slate-50 p-4",
+                    showOpenInDraftingButton: true,
+                  })}
+                </CollapsibleCard>
               </div>
             </article>
           </section>
@@ -1905,7 +3102,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
         {activeTab === "bible" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-xl font-semibold text-slate-900">Story Bible</h2>
                 <div className="flex flex-wrap gap-2">
@@ -1940,9 +3137,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               <p className="mt-3 text-sm text-slate-600">
                 Use the core suggestion to fill premise, themes, stakes, and world rules. Use the world suggestion to scaffold characters, locations, lore, timeline, and relationships from the same canon.
               </p>
-              <div className="mt-3 grid gap-3">
-                <label className="grid gap-1 text-sm text-slate-700">
-                  Premise
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <label className="grid gap-1 text-sm text-slate-700 lg:col-span-2">
+                  <FieldLabel label="Premise" help={fieldHelp["bible.premise"]} />
                   <textarea
                     rows={3}
                     value={activeProject.bible.premise}
@@ -1952,11 +3149,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         premise: event.target.value,
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-wide"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Themes (comma separated)
+                  <FieldLabel label="Themes (comma separated)" help={fieldHelp["bible.themes"]} />
                   <input
                     value={activeProject.bible.themes.join(", ")}
                     onChange={(event) =>
@@ -1968,11 +3165,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           .filter(Boolean),
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-default"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Stakes
+                  <FieldLabel label="Stakes" help={fieldHelp["bible.stakes"]} />
                   <textarea
                     rows={2}
                     value={activeProject.bible.stakes}
@@ -1982,11 +3179,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         stakes: event.target.value,
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-default"
                   />
                 </label>
-                <label className="grid gap-1 text-sm text-slate-700">
-                  World rules
+                <label className="grid gap-1 text-sm text-slate-700 lg:col-span-2">
+                  <FieldLabel label="World rules" help={fieldHelp["bible.worldRules"]} />
                   <textarea
                     rows={4}
                     value={activeProject.bible.worldRules}
@@ -1996,13 +3193,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         worldRules: event.target.value,
                       })
                     }
-                    className="rounded-md px-3 py-2"
+                    className="ui-input ui-input-wide"
                   />
                 </label>
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">Entity history timelines</h2>
@@ -2017,11 +3214,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
               <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Story-wide entity or relationship
+                  <FieldLabel label="Story-wide entity or relationship" />
                   <select
                     value={selectedHistoryEntity?.key ?? ""}
                     onChange={(event) => setSelectedHistoryEntityKey(event.target.value)}
-                    className="rounded border border-slate-300 px-3 py-2"
+                    className="ui-input ui-input-default"
                   >
                     {historyEntityOptions.map((option) => (
                       <option key={option.key} value={option.key}>
@@ -2088,7 +3285,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Characters</h2>
               <button
                 onClick={() =>
@@ -2109,8 +3306,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               >
                 Add character
               </button>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-characters"
+                  label="Search characters"
+                  value={uiPrefs.filters.characters}
+                  onChange={(value) => setFilterValue("characters", value)}
+                  help="Filter by name, role, arc, or notes."
+                  placeholder="Filter characters"
+                />
+              </div>
               <div className="mt-3 space-y-3">
-                {activeProject.characters.map((character) => (
+                {filteredCharacters.map((character) => (
                   <div key={character.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <input
@@ -2122,7 +3329,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Character name"
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <button
                         onClick={() => void deleteCharacter(character.id)}
@@ -2141,14 +3348,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         })
                       }
                       placeholder="Arc"
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      className="ui-input ui-input-default"
                     />
                   </div>
                 ))}
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold text-slate-900">Locations</h2>
                 <button
@@ -2158,8 +3365,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   Add location
                 </button>
               </div>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-locations"
+                  label="Search locations"
+                  value={uiPrefs.filters.locations}
+                  onChange={(value) => setFilterValue("locations", value)}
+                  help="Filter by location name, role, status, or description."
+                  placeholder="Filter locations"
+                />
+              </div>
               <div className="mt-3 space-y-3">
-                {activeProject.locations.map((location) => (
+                {filteredLocations.map((location) => (
                   <div key={location.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="mb-2 flex items-center gap-2">
                       <input
@@ -2171,7 +3388,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Location name"
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <button
                         onClick={() => void deleteLocation(location.id)}
@@ -2190,7 +3407,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Role"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <input
                         value={location.narrativeStatus}
@@ -2201,7 +3418,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Narration status"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                     </div>
                     <textarea
@@ -2214,14 +3431,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         })
                       }
                       placeholder="Description"
-                      className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      className="ui-input ui-input-default mt-2"
                     />
                   </div>
                 ))}
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold text-slate-900">Lore</h2>
                 <button
@@ -2231,8 +3448,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   Add lore item
                 </button>
               </div>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-lore"
+                  label="Search lore"
+                  value={uiPrefs.filters.lore}
+                  onChange={(value) => setFilterValue("lore", value)}
+                  help="Filter by title, category, status, or description."
+                  placeholder="Filter lore entries"
+                />
+              </div>
               <div className="mt-3 space-y-3">
-                {activeProject.loreEntries.map((entry) => (
+                {filteredLoreEntries.map((entry) => (
                   <div key={entry.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="mb-2 flex items-center gap-2">
                       <input
@@ -2244,7 +3471,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Lore title"
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <button
                         onClick={() => void deleteLoreEntry(entry.id)}
@@ -2263,7 +3490,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Category"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <input
                         value={entry.status}
@@ -2274,7 +3501,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Status"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                     </div>
                     <textarea
@@ -2287,14 +3514,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         })
                       }
                       placeholder="Description"
-                      className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                      className="ui-input ui-input-default mt-2"
                     />
                   </div>
                 ))}
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold text-slate-900">Timeline</h2>
                 <button
@@ -2315,10 +3542,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   Add timeline event
                 </button>
               </div>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-timeline"
+                  label="Search timeline events"
+                  value={uiPrefs.filters.timeline}
+                  onChange={(value) => setFilterValue("timeline", value)}
+                  help="Filter by event label, details, or impact."
+                  placeholder="Filter timeline events"
+                />
+              </div>
               <div className="mt-3 space-y-2">
-                {activeProject.timeline
-                  .sort((a, b) => a.order - b.order)
-                  .map((event) => (
+                {filteredTimeline.map((event) => (
                     <div
                       key={event.id}
                       className="grid gap-2 rounded-lg border border-slate-200 p-3 lg:grid-cols-[140px_minmax(0,1fr)_120px_auto]"
@@ -2332,7 +3567,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Event label"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <input
                         value={event.details}
@@ -2343,7 +3578,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Details"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <input
                         value={event.impact}
@@ -2354,7 +3589,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Impact"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <button
                         onClick={() => void deleteTimelineEventAction(event.id)}
@@ -2367,7 +3602,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold text-slate-900">Relationships</h2>
                 <button
@@ -2377,8 +3612,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   Add relationship
                 </button>
               </div>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-relationships"
+                  label="Search relationships"
+                  value={uiPrefs.filters.relationships}
+                  onChange={(value) => setFilterValue("relationships", value)}
+                  help="Filter by relation type, status, and notes."
+                  placeholder="Filter relationships"
+                />
+              </div>
               <div className="mt-3 space-y-3">
-                {activeProject.relationships.map((relationship) => (
+                {filteredRelationships.map((relationship) => (
                   <div key={relationship.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="grid gap-2 lg:grid-cols-[150px_1fr_150px_1fr_140px_100px_auto]">
                       <select
@@ -2390,7 +3635,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             sourceId: "",
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="character">Character</option>
                         <option value="location">Location</option>
@@ -2405,7 +3650,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             sourceId: event.target.value,
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="">Select source</option>
                         {trackedEntityOptions
@@ -2425,7 +3670,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             targetId: "",
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="character">Character</option>
                         <option value="location">Location</option>
@@ -2440,7 +3685,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             targetId: event.target.value,
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="">Select target</option>
                         {trackedEntityOptions
@@ -2460,7 +3705,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Relation type"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <input
                         type="number"
@@ -2473,7 +3718,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             intensity: Number(event.target.value) || 1,
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <button
                         onClick={() => void deleteRelationship(relationship.id)}
@@ -2492,7 +3737,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Status"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <input
                         value={relationship.notes}
@@ -2503,7 +3748,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Evolution notes"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                     </div>
                   </div>
@@ -2511,7 +3756,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold text-slate-900">Entity progression tracker</h2>
                 <button
@@ -2524,8 +3769,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               <p className="mt-2 text-sm text-slate-600">
                 Track start state, evidence, delta, end state, knowledge, belief, inventory, and narration status chapter by chapter.
               </p>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-progression"
+                  label="Search progression entries"
+                  value={uiPrefs.filters.progression}
+                  onChange={(value) => setFilterValue("progression", value)}
+                  help="Filter by label, states, deltas, and narration status."
+                  placeholder="Filter progression"
+                />
+              </div>
               <div className="mt-3 space-y-3">
-                {activeProject.entityProgression.map((entry) => (
+                {filteredEntityProgression.map((entry) => (
                   <div key={entry.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="grid gap-2 lg:grid-cols-[140px_1fr_140px_1fr_auto]">
                       <select
@@ -2538,7 +3793,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             label: "",
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="character">Character</option>
                         <option value="location">Location</option>
@@ -2555,7 +3810,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             label: option?.label ?? entry.label,
                           });
                         }}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="">Select entity</option>
                         {trackedEntityOptions
@@ -2575,7 +3830,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             sceneId: undefined,
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="">Story-level</option>
                         {activeProject.chapters.map((chapter) => (
@@ -2592,7 +3847,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             sceneId: event.target.value || undefined,
                           })
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="">No scene</option>
                         {activeProject.scenes
@@ -2621,7 +3876,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Start state"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <textarea
                         rows={2}
@@ -2633,7 +3888,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="End state"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <textarea
                         rows={2}
@@ -2645,7 +3900,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Evidence"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <textarea
                         rows={2}
@@ -2657,7 +3912,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Proposed delta"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <textarea
                         rows={2}
@@ -2669,7 +3924,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Validated delta"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <textarea
                         rows={2}
@@ -2681,7 +3936,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="AI fix suggestion"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-default"
                       />
                       <input
                         value={entry.knowledge}
@@ -2692,7 +3947,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Knowledge"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <input
                         value={entry.belief}
@@ -2703,7 +3958,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Belief"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <input
                         value={entry.inventory}
@@ -2714,7 +3969,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           })
                         }
                         placeholder="Inventory"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <div className="grid gap-2 sm:grid-cols-[1fr_180px]">
                         <input
@@ -2726,7 +3981,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             })
                           }
                           placeholder="Narration status"
-                          className="rounded border border-slate-300 px-2 py-1 text-sm"
+                          className="ui-input ui-input-compact"
                         />
                         <select
                           value={entry.confidence}
@@ -2736,7 +3991,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                               confidence: event.target.value as EntityProgression["confidence"],
                             })
                           }
-                          className="rounded border border-slate-300 px-2 py-1 text-sm"
+                          className="ui-input ui-input-compact"
                         >
                           <option value="explicit">Explicit</option>
                           <option value="strong_inference">Strong inference</option>
@@ -2751,7 +4006,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <h2 className="text-xl font-semibold text-slate-900">Progression overview</h2>
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 {progressionByEntity.map((group) => (
@@ -2786,11 +4041,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
         {activeTab === "drafting" && (
           <section className={mainClass}>
-            <aside className="rounded-2xl border border-slate-200 bg-white/90 p-4">
-              <h2 className="text-lg font-semibold text-slate-900">Outline</h2>
+            <aside className="ui-card drafting-outline">
+              <h2 className="text-xl font-semibold text-slate-900">Outline</h2>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-drafting-outline"
+                  label="Search outline chapters"
+                  value={uiPrefs.filters.draftingOutline}
+                  onChange={(value) => setFilterValue("draftingOutline", value)}
+                  help="Filter outline chapter cards by number, title, summary, or status."
+                  placeholder="Filter chapter list"
+                />
+              </div>
               <button
                 onClick={() => setOutlineSearchVisible((current) => !current)}
-                className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
+                className="mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
               >
                 {outlineSearchVisible ? "Hide" : "Show"} search/replace
               </button>
@@ -2801,44 +4066,42 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     value={searchText}
                     onChange={(event) => setSearchText(event.target.value)}
                     placeholder="Search"
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="ui-input ui-input-compact"
                   />
                   <input
                     value={replaceText}
                     onChange={(event) => setReplaceText(event.target.value)}
                     placeholder="Replace"
-                    className="rounded border border-slate-300 px-2 py-1 text-sm"
+                    className="ui-input ui-input-compact"
                   />
                   <button
                     onClick={() => void applySearchReplace()}
-                    className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                   >
                     Apply globally
                   </button>
                 </div>
               )}
 
-              {activeProject.chapters.length === 0 ? (
+              {filteredDraftingChapters.length === 0 ? (
                 <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
                   No chapters yet.
                   <button
                     onClick={() => void addChapter()}
-                    className="mt-2 block rounded border border-slate-300 px-2 py-1 text-xs"
+                    className="mt-2 block rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                   >
                     Add first chapter
                   </button>
                 </div>
               ) : (
                 <ul className="mt-4 space-y-2">
-                  {activeProject.chapters
-                    .sort((a, b) => a.number - b.number)
-                    .map((chapter) => (
+                  {filteredDraftingChapters.map((chapter) => (
                       <li key={chapter.id}>
                         <button
                           onClick={() => setSelectedChapterId(chapter.id)}
                           className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${
                             selectedChapter?.id === chapter.id
-                              ? "border-teal-600 bg-teal-50"
+                              ? "border-teal-600 bg-teal-50 shadow-sm"
                               : "border-slate-300 hover:bg-slate-50"
                           }`}
                         >
@@ -2851,10 +4114,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </aside>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-4">
+            <article className="ui-card drafting-workbench">
               {selectedChapter ? (
                 <>
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div className="drafting-workbench__header">
                     <div>
                       <h2 className="text-xl font-semibold text-slate-900">{chapterLabel(selectedChapter)}</h2>
                       <p className="text-xs text-slate-600">
@@ -2864,13 +4127,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => setFocusMode((current) => !current)}
-                        className="rounded border border-slate-300 px-2 py-1 text-xs"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                       >
                         {focusMode ? "Exit focus" : "Focus mode"}
                       </button>
                       <button
                         onClick={() => setReadingMode((current) => !current)}
-                        className="rounded border border-slate-300 px-2 py-1 text-xs"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                       >
                         {readingMode ? "Edit mode" : "Reading mode"}
                       </button>
@@ -2882,18 +4145,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             editor?.getHTML() ?? selectedChapter.content
                           )
                         }
-                        className="rounded border border-slate-300 px-2 py-1 text-xs"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
                       >
                         Snapshot
                       </button>
                     </div>
                   </div>
 
-                  {renderSelectedChapterDetails({
-                    containerClassName: "mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4",
-                  })}
-
-                  <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+                  <CollapsibleCard
+                    title="Per-chapter trackers"
+                    subtitle="Compute and inspect chapter-level canon evolution."
+                    collapsed={uiPrefs.collapsed.draftingTrackers}
+                    onToggle={() => toggleCollapsed("draftingTrackers")}
+                    collapseLabel={uiText.collapse}
+                    expandLabel={uiText.expand}
+                    className="drafting-secondary-card"
+                  >
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-slate-900">
@@ -3025,11 +4293,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         </p>
                       )}
                     </div>
-                  </div>
+                    </div>
+                  </CollapsibleCard>
 
-                  <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
+                  <CollapsibleCard
+                    title="Chapter draft studio"
+                    subtitle="Write manually or generate a full chapter preview."
+                    collapsed={uiPrefs.collapsed.draftingDraftStudio}
+                    onToggle={() => toggleCollapsed("draftingDraftStudio")}
+                    collapseLabel={uiText.collapse}
+                    expandLabel={uiText.expand}
+                    className="drafting-studio-card"
+                  >
+                    <div className="drafting-studio__controls">
+                    <div className="drafting-studio__header">
+                      <div className="drafting-studio__intro">
                         <h3 className="text-lg font-semibold text-slate-900">
                           Chapter draft studio
                         </h3>
@@ -3055,7 +4333,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       </div>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="drafting-toolbar">
                       <button
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => editor?.chain().focus().toggleBold().run()}
@@ -3114,7 +4392,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       </button>
                     </div>
 
-                    <p className="mt-3 text-xs text-slate-500">
+                    <p className="drafting-studio__hint">
                       Manual editing is enabled unless Reading mode is active.
                     </p>
                     {chapterDraftAiMessage && (
@@ -3123,9 +4401,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     {chapterDraftAiError && (
                       <p className="mt-2 text-sm text-rose-700">{chapterDraftAiError}</p>
                     )}
-                  </div>
+                    </div>
+                  </CollapsibleCard>
 
-                  <div className="mb-4 rounded-xl border border-slate-300 bg-white px-4 py-3">
+                  <div className="drafting-editor-surface">
                     <EditorContent
                       editor={editor}
                       className="prose-view max-w-none text-sm text-slate-800"
@@ -3162,7 +4441,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     </div>
                   )}
 
-                  <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <CollapsibleCard
+                    title="Scene cards"
+                    subtitle="Manual scene beats and AI-driven scene suggestions."
+                    collapsed={uiPrefs.collapsed.draftingScenes}
+                    onToggle={() => toggleCollapsed("draftingScenes")}
+                    collapseLabel={uiText.collapse}
+                    expandLabel={uiText.expand}
+                    className="drafting-secondary-card"
+                  >
+                    <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-900">Scene cards</h3>
@@ -3204,21 +4492,15 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     )}
                     {selectedScenes.length === 0 && <p className="text-xs text-slate-600">No scenes yet for this chapter.</p>}
                     {selectedScenes.map((scene) => (
-                      <div key={scene.id} className="rounded-lg border border-slate-200 bg-white p-2">
-                        <div className="mb-1 flex items-center gap-2">
+                      <div key={scene.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="mb-2 flex items-center gap-2">
                           <div className="w-full">
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <label
-                                htmlFor={`scene-title-${scene.id}`}
-                                className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.title}
-                              >
-                                Title
-                              </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.title}>
-                                Hover for help
-                              </span>
-                            </div>
+                            <FieldLabel
+                              htmlFor={`scene-title-${scene.id}`}
+                              label="Title"
+                              help={sceneFieldHelp.title}
+                              hint={locale === "fr" ? "Libelle de scene" : "Scene label"}
+                            />
                             <input
                               id={`scene-title-${scene.id}`}
                               value={scene.title}
@@ -3229,29 +4511,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 })
                               }
                               placeholder={`Scene ${scene.order} title`}
-                              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="ui-input ui-input-default"
                             />
                           </div>
                           <button
                             onClick={() => void deleteScene(scene.id)}
-                            className="rounded border border-rose-300 px-2 py-1 text-xs text-rose-700"
+                            className="rounded border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700"
                           >
                             Delete
                           </button>
                         </div>
-                        <div className="mb-2">
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <label
-                              htmlFor={`scene-description-${scene.id}`}
-                              className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.description}
-                            >
-                              Description
-                            </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.description}>
-                              Purpose and outcome
-                            </span>
-                          </div>
+                        <div className="mb-3">
+                          <FieldLabel
+                            htmlFor={`scene-description-${scene.id}`}
+                            label="Description"
+                            help={sceneFieldHelp.description}
+                            hint={locale === "fr" ? "But et issue" : "Purpose and outcome"}
+                          />
                           <textarea
                             id={`scene-description-${scene.id}`}
                             rows={2}
@@ -3263,23 +4539,17 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                               })
                             }
                             placeholder="Summarize the scene beat, conflict, and ending state"
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="ui-input ui-input-wide"
                           />
                         </div>
-                        <div className="mb-1 grid gap-1 md:grid-cols-2">
+                        <div className="mb-2 grid gap-2 md:grid-cols-2">
                           <div>
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <label
-                                htmlFor={`scene-location-${scene.id}`}
-                                className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.location}
-                              >
-                                Location
-                              </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.location}>
-                                Setting
-                              </span>
-                            </div>
+                            <FieldLabel
+                              htmlFor={`scene-location-${scene.id}`}
+                              label="Location"
+                              help={sceneFieldHelp.location}
+                              hint={locale === "fr" ? "Decor" : "Setting"}
+                            />
                             <input
                               id={`scene-location-${scene.id}`}
                               value={scene.location}
@@ -3290,22 +4560,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 })
                               }
                               placeholder="Scene location"
-                              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="ui-input ui-input-default"
                             />
                           </div>
                           <div>
-                            <div className="mb-1 flex items-center justify-between gap-2">
-                              <label
-                                htmlFor={`scene-characters-${scene.id}`}
-                                className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.characters}
-                              >
-                                Characters
-                              </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.characters}>
-                                Comma separated
-                              </span>
-                            </div>
+                            <FieldLabel
+                              htmlFor={`scene-characters-${scene.id}`}
+                              label="Characters"
+                              help={sceneFieldHelp.characters}
+                              hint={locale === "fr" ? "Separes par virgules" : "Comma separated"}
+                            />
                             <input
                               id={`scene-characters-${scene.id}`}
                               value={scene.characters.join(", ")}
@@ -3319,23 +4583,17 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 })
                               }
                               placeholder="Characters, comma separated"
-                              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="ui-input ui-input-default"
                             />
                           </div>
                         </div>
-                        <div className="mb-2">
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <label
-                              htmlFor={`scene-notes-${scene.id}`}
-                              className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.notes}
-                            >
-                              Notes
-                            </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.notes}>
-                              Continuity anchors
-                            </span>
-                          </div>
+                        <div className="mb-3">
+                          <FieldLabel
+                            htmlFor={`scene-notes-${scene.id}`}
+                            label="Notes"
+                            help={sceneFieldHelp.notes}
+                            hint={locale === "fr" ? "Ancrages continuite" : "Continuity anchors"}
+                          />
                           <textarea
                             id={`scene-notes-${scene.id}`}
                             rows={2}
@@ -3347,22 +4605,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                               })
                             }
                             placeholder="Scene notes and continuity anchors"
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="ui-input ui-input-default"
                           />
                         </div>
-                        <div className="mb-2">
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <label
-                              htmlFor={`scene-draft-${scene.id}`}
-                              className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.draftText}
-                            >
-                              Draft seed
-                            </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.draftText}>
-                              Beat outline
-                            </span>
-                          </div>
+                        <div className="mb-3">
+                          <FieldLabel
+                            htmlFor={`scene-draft-${scene.id}`}
+                            label="Draft seed"
+                            help={sceneFieldHelp.draftText}
+                            hint={locale === "fr" ? "Plan de beat" : "Beat outline"}
+                          />
                           <textarea
                             id={`scene-draft-${scene.id}`}
                             rows={2}
@@ -3374,14 +4626,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                               })
                             }
                             placeholder="Scene draft notes"
-                            className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="ui-input ui-input-default"
                           />
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => void generateSceneDraft(scene)}
                             disabled={sceneDraftAiSceneId != null}
-                            className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:opacity-40"
+                            className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                           >
                             {sceneDraftAiSceneId === scene.id
                               ? "Generating draft..."
@@ -3396,9 +4648,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         </div>
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  </CollapsibleCard>
 
-                  <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3">
+                  <CollapsibleCard
+                    title="Specialized assistants"
+                    subtitle="Choose assistant profile, action, and preview/apply output."
+                    collapsed={uiPrefs.collapsed.draftingAssistants}
+                    onToggle={() => toggleCollapsed("draftingAssistants")}
+                    collapseLabel={uiText.collapse}
+                    expandLabel={uiText.expand}
+                    className="drafting-secondary-card"
+                  >
+                    <div className="rounded-xl border border-slate-200 bg-white p-3">
                     <h3 className="text-sm font-semibold text-slate-900">Specialized assistants</h3>
                     <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                       {ASSISTANTS.map((assistant) => (
@@ -3427,7 +4689,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                       <select
                         value={aiAction}
                         onChange={(event) => setAiAction(event.target.value as AiActionType)}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       >
                         {[
                           "brainstorm",
@@ -3453,7 +4715,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         value={aiPromptContext}
                         onChange={(event) => setAiPromptContext(event.target.value)}
                         placeholder="Optional extra instructions"
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        className="ui-input ui-input-compact"
                       />
                       <button
                         onClick={() => void runAiPreview()}
@@ -3533,10 +4795,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  </CollapsibleCard>
 
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <h3 className="text-sm font-semibold text-slate-900">Annotations</h3>
+                  <CollapsibleCard
+                    title="Annotations"
+                    subtitle="Track quoted lines, notes, and tags for the selected chapter."
+                    collapsed={uiPrefs.collapsed.draftingAnnotations}
+                    onToggle={() => toggleCollapsed("draftingAnnotations")}
+                    collapseLabel={uiText.collapse}
+                    expandLabel={uiText.expand}
+                    className="drafting-secondary-card"
+                  >
                     <button
                       onClick={() =>
                         void saveAnnotation({
@@ -3550,7 +4820,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                           updatedAt: new Date().toISOString(),
                         })
                       }
-                      className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
+                      className="rounded border border-slate-300 px-2 py-1 text-xs"
                     >
                       Add annotation
                     </button>
@@ -3570,7 +4840,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                   })
                                 }
                                 placeholder="Quoted text"
-                                className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                                className="ui-input ui-input-default"
                               />
                               <button
                                 onClick={() => void deleteAnnotation(annotation.id)}
@@ -3589,7 +4859,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 })
                               }
                               placeholder="Author note"
-                              className="mb-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="ui-input ui-input-default mb-1"
                             />
                             <input
                               value={annotation.tags.join(", ")}
@@ -3603,12 +4873,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                                 })
                               }
                               placeholder="tags"
-                              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                              className="ui-input ui-input-default"
                             />
                           </div>
                         ))}
                     </div>
-                  </div>
+                  </CollapsibleCard>
                 </>
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
@@ -3622,12 +4892,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 </div>
               )}
             </article>
+            {selectedChapter && (
+              <aside className="drafting-inspector">
+                <CollapsibleCard
+                  title="Chapter details"
+                  subtitle="Summary, objectives, hook, and completion metadata."
+                  collapsed={uiPrefs.collapsed.draftingChapterDetails}
+                  onToggle={() => toggleCollapsed("draftingChapterDetails")}
+                  collapseLabel={uiText.collapse}
+                  expandLabel={uiText.expand}
+                >
+                  {renderSelectedChapterDetails({
+                    containerClassName: "selected-chapter-details",
+                  })}
+                </CollapsibleCard>
+              </aside>
+            )}
           </section>
         )}
 
         {activeTab === "revision" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Revision issues</h2>
               <button
                 onClick={() =>
@@ -3642,8 +4928,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               >
                 Add issue
               </button>
+              <div className="mt-3">
+                <FilterInput
+                  id="filter-revision-issues"
+                  label="Search revision issues"
+                  value={uiPrefs.filters.revisionIssues}
+                  onChange={(value) => setFilterValue("revisionIssues", value)}
+                  help="Filter by title, description, severity, or status."
+                  placeholder="Filter issues"
+                />
+              </div>
               <div className="mt-3 space-y-2">
-                {activeProject.revisionIssues.map((issue) => (
+                {filteredRevisionIssues.map((issue) => (
                   <div key={issue.id} className="rounded-lg border border-slate-200 p-3">
                     <p className="text-sm font-semibold text-slate-900">{issue.title}</p>
                     <p className="mb-2 text-xs text-slate-600">{issue.description}</p>
@@ -3657,7 +4953,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                             event.target.value as RevisionIssue["status"]
                           )
                         }
-                        className="rounded border border-slate-300 px-2 py-1"
+                        className="ui-input ui-input-compact"
                       >
                         <option value="open">Open</option>
                         <option value="in-progress">In progress</option>
@@ -3675,7 +4971,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Quality checks</h2>
               <p className="mt-2 text-sm text-slate-600">
                 Rubric weights: structure {resolved.settings.qa.rubricWeights.structure}% · character {resolved.settings.qa.rubricWeights.character}% · pacing {resolved.settings.qa.rubricWeights.pacing}% · style {resolved.settings.qa.rubricWeights.style}%
@@ -3702,8 +4998,15 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 </div>
               )}
 
-              <div className="mt-4 rounded-lg border border-slate-200 p-3">
-                <h3 className="text-sm font-semibold text-slate-900">Checklists</h3>
+              <CollapsibleCard
+                title="Checklists"
+                subtitle="Track revision and publishing completion state."
+                collapsed={uiPrefs.collapsed.revisionChecklist}
+                onToggle={() => toggleCollapsed("revisionChecklist")}
+                collapseLabel={uiText.collapse}
+                expandLabel={uiText.expand}
+                className="mt-4"
+              >
                 <p className="text-xs text-slate-600">
                   Revision completion: {checklistCompletion(activeProject.checklist, "revision")}% · Publish completion: {checklistCompletion(activeProject.checklist, "publish")}%
                 </p>
@@ -3742,14 +5045,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     </li>
                   ))}
                 </ul>
-              </div>
+              </CollapsibleCard>
             </article>
           </section>
         )}
 
         {activeTab === "publish" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <h2 className="text-xl font-semibold text-slate-900">Publishing artifacts</h2>
               <p className="mt-2 text-sm text-slate-600">No external platform integration. Export-ready local artifacts only.</p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -3786,12 +5089,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h3 className="text-lg font-semibold text-slate-900">Metadata sheet</h3>
               <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{publishArtifacts?.metadataSheet}</pre>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h3 className="text-lg font-semibold text-slate-900">Chapter manifest</h3>
               <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{publishArtifacts?.chapterManifest}</pre>
             </article>
@@ -3800,7 +5103,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
         {activeTab === "marketing" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
+            <article className="ui-card p-5 lg:col-span-2">
               <h2 className="text-xl font-semibold text-slate-900">Marketing toolkit</h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button onClick={() => exportMarketingArtifacts()} className="rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
@@ -3818,13 +5121,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h3 className="text-lg font-semibold text-slate-900">Blurb + tagline</h3>
               <p className="mt-2 text-sm text-slate-700">{marketingArtifacts?.blurb}</p>
               <p className="mt-2 text-sm font-semibold text-slate-900">{marketingArtifacts?.tagline}</p>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h3 className="text-lg font-semibold text-slate-900">Cover brief + launch checklist</h3>
               <p className="mt-2 text-sm text-slate-700">{marketingArtifacts?.coverBriefPrompt}</p>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
@@ -3838,74 +5141,91 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
         {activeTab === "settings" && (
           <section className="grid gap-4 lg:grid-cols-2">
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Model configuration</h2>
               <div className="mt-3 grid gap-2">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Base URL
+                  <FieldLabel label="Base URL" help={fieldHelp["settings.baseUrl"]} />
                   <input
-                    value={resolved.settings.llm.baseUrl}
+                    value={projectLlmSettings.baseUrl}
+                    placeholder={DEFAULT_LLM_BASE_URL}
+                    inputMode="url"
                     onChange={(event) =>
-                      void saveScope(
-                        "project",
-                        {
-                          llm: {
-                            ...resolved.settings.llm,
-                            baseUrl: event.target.value,
-                          },
-                        },
-                        projectIdValue
-                      )
+                      setProjectLlmDraft((current) => ({
+                        ...(current ?? projectLlmSettings),
+                        baseUrl: event.target.value,
+                      }))
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Model
+                  <FieldLabel label="Model" help={fieldHelp["settings.model"]} />
                   <input
-                    value={resolved.settings.llm.model}
+                    value={projectLlmSettings.model}
                     onChange={(event) =>
-                      void saveScope(
-                        "project",
-                        {
-                          llm: {
-                            ...resolved.settings.llm,
-                            model: event.target.value,
-                          },
-                        },
-                        projectIdValue
-                      )
+                      setProjectLlmDraft((current) => ({
+                        ...(current ?? projectLlmSettings),
+                        model: event.target.value,
+                      }))
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  API key (optional)
+                  <FieldLabel label="API key (optional)" help={fieldHelp["settings.apiKey"]} />
                   <input
-                    value={resolved.settings.llm.apiKey ?? ""}
+                    value={projectLlmSettings.apiKey ?? ""}
                     onChange={(event) =>
-                      void saveScope(
-                        "project",
-                        {
-                          llm: {
-                            ...resolved.settings.llm,
-                            apiKey: event.target.value,
-                          },
-                        },
-                        projectIdValue
-                      )
+                      setProjectLlmDraft((current) => ({
+                        ...(current ?? projectLlmSettings),
+                        apiKey: event.target.value,
+                      }))
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   />
                 </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextLlm: LlmSettings = {
+                      ...projectLlmSettings,
+                      baseUrl: DEFAULT_LLM_BASE_URL,
+                      model: DEFAULT_LLM_MODEL,
+                      apiKey: undefined,
+                    };
+                    setProjectLlmDraft(nextLlm);
+                    void saveScope(
+                      "project",
+                      { llm: nextLlm },
+                      projectIdValue
+                    ).then(() => setProjectLlmDraft(null));
+                  }}
+                  className="ui-btn ui-btn-secondary justify-self-start"
+                >
+                  Use local Ollama
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void saveScope(
+                      "project",
+                      { llm: projectLlmSettings },
+                      projectIdValue
+                    ).then(() => setProjectLlmDraft(null));
+                  }}
+                  className="ui-btn ui-btn-primary justify-self-start"
+                >
+                  Save model configuration
+                </button>
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
+            <article className="ui-card p-5">
               <h2 className="text-xl font-semibold text-slate-900">Prompt + QA settings</h2>
               <div className="mt-3 grid gap-2">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Writing language
+                  <FieldLabel label="Writing language" />
                   <select
                     value={resolved.settings.locale}
                     onChange={(event) =>
@@ -3917,14 +5237,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         projectIdValue
                       )
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   >
                     <option value="fr">French</option>
                     <option value="en">English</option>
                   </select>
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Tone guide
+                  <FieldLabel label="Tone guide" help={fieldHelp["settings.toneGuide"]} />
                   <textarea
                     rows={2}
                     value={resolved.settings.prompts.toneGuide}
@@ -3940,11 +5260,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         projectIdValue
                       )
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Structure weight
+                  <FieldLabel label="Structure weight" help={fieldHelp["settings.structureWeight"]} />
                   <input
                     type="number"
                     min={0}
@@ -3965,7 +5285,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                         projectIdValue
                       )
                     }
-                    className="rounded border border-slate-300 px-2 py-1"
+                    className="ui-input ui-input-default"
                   />
                 </label>
               </div>
@@ -3990,26 +5310,61 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
-              <h2 className="text-xl font-semibold text-slate-900">Snapshots & recovery</h2>
-              <ul className="mt-3 space-y-2">
-                {activeProject.snapshots.map((snapshot) => (
-                  <li key={snapshot.id} className="flex items-center justify-between rounded border border-slate-200 p-2 text-sm">
-                    <span>
-                      {snapshot.label} · {new Date(snapshot.createdAt).toLocaleString()}
-                    </span>
-                    <button
-                      onClick={() => void restoreSnapshot(snapshot.id)}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs"
-                    >
-                      Restore
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            <article className="ui-card p-5 lg:col-span-2">
+              <CollapsibleCard
+                title="Snapshots & recovery"
+                subtitle="Restore previous chapter/project snapshots when needed."
+                collapsed={uiPrefs.collapsed.settingsRecovery}
+                onToggle={() => toggleCollapsed("settingsRecovery")}
+                collapseLabel={uiText.collapse}
+                expandLabel={uiText.expand}
+              >
+                <FilterInput
+                  id="filter-snapshots"
+                  label="Search snapshots"
+                  value={uiPrefs.filters.snapshots}
+                  onChange={(value) => setFilterValue("snapshots", value)}
+                  help="Filter by snapshot label or timestamp."
+                  placeholder="Filter snapshots"
+                />
+                <ul className="mt-3 space-y-2">
+                  {filteredSnapshots.map((snapshot) => (
+                    <li key={snapshot.id} className="flex items-center justify-between rounded border border-slate-200 p-2 text-sm">
+                      <span>
+                        {snapshot.label} · {new Date(snapshot.createdAt).toLocaleString()}
+                      </span>
+                      <button
+                        onClick={() => void restoreSnapshot(snapshot.id)}
+                        className="rounded border border-slate-300 px-2 py-1 text-xs"
+                      >
+                        Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleCard>
             </article>
           </section>
         )}
+          </div>
+          {companionOpen && (
+            <div className="workspace-side">
+              <ProjectCompanionSidebar
+                projectTitle={project.title}
+                selectedChapterLabel={selectedChapterCompanionLabel}
+                messages={companionMessages}
+                draft={companionInput}
+                status={companionStatus}
+                error={companionError}
+                onDraftChange={setCompanionInput}
+                onSend={() => void askProjectCompanion()}
+                onClear={clearCompanionConversation}
+                onClose={toggleCompanion}
+              />
+            </div>
+          )}
+        </div>
+
       </main>
     </div>
   );

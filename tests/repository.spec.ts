@@ -34,6 +34,7 @@ import {
   saveAnnotation,
   saveCharacterProfile,
   saveChapter,
+  saveChapters,
   saveChapterTrackerReport,
   saveChecklistItem,
   saveEntityHistoryEntry,
@@ -96,6 +97,64 @@ describe("repository lifecycle", () => {
     const refreshed = await getProjectBundle(bundle.project.id);
     expect(refreshed?.project.title).toBe("Beta 2");
     expect(refreshed?.chapters[0].wordCountCurrent).toBe(2);
+  });
+
+  it("updates chapter plans in one batch without replacing draft content", async () => {
+    const bundle = await createProjectFromInput({
+      title: "Batch Plan",
+      genre: "Mystery",
+      audience: "Adult",
+      tone: "Tense",
+      targetWordCount: 60000,
+      language: "en",
+      synopsis: "A locked-room mystery.",
+      mode: "idea",
+      chapterCount: 2,
+    });
+    const [first, second] = bundle.chapters;
+
+    await saveChapters([
+      {
+        ...first,
+        title: "The sealed door",
+        content: "<p>Existing first draft stays here.</p>",
+      },
+      {
+        ...second,
+        title: "The second key",
+        summary: "The first answer creates a more dangerous question.",
+      },
+    ]);
+
+    const refreshed = await getProjectBundle(bundle.project.id);
+    expect(refreshed?.chapters[0].title).toBe("The sealed door");
+    expect(refreshed?.chapters[0].content).toBe(
+      "<p>Existing first draft stays here.</p>"
+    );
+    expect(refreshed?.chapters[0].wordCountCurrent).toBe(5);
+    expect(refreshed?.chapters[1].title).toBe("The second key");
+  });
+
+  it("seeds distinct starter content for template mode", async () => {
+    const bundle = await createProjectFromInput({
+      title: "Template Seed",
+      genre: "Romance",
+      audience: "Adult",
+      tone: "Intimate",
+      targetWordCount: 82000,
+      language: "fr",
+      synopsis: "",
+      mode: "template",
+      templateId: "relationship",
+    });
+
+    expect(bundle.chapters).toHaveLength(12);
+    expect(bundle.chapters[0].title).toBe("Separate Equilibrium");
+    expect(bundle.chapters[0].summary).toContain("Introduce each lead");
+    expect(bundle.goal.chapterWords).toBeGreaterThan(0);
+    expect(bundle.manuscript.premise).toContain("Two people who want connection");
+    expect(bundle.bible.themes).toContain("vulnerability");
+    expect(bundle.bible.worldRules).toContain("emotional boundaries");
   });
 
   it("adds chapters and scenes with ordering", async () => {

@@ -1,4 +1,11 @@
 import type { ProjectBundle, StoryBible } from "@/app/domain/models";
+import {
+  asRecord,
+  asString,
+  asStringArray,
+  createJsonResponseFormat,
+  parseStructuredJson,
+} from "@/app/lib/ai/structuredOutput";
 
 type StoryBibleSuggestionFields = Pick<
   StoryBible,
@@ -6,6 +13,25 @@ type StoryBibleSuggestionFields = Pick<
 >;
 
 type StoryBibleLabel = "Premise" | "Themes" | "Stakes" | "World rules";
+
+export const STORY_BIBLE_RESPONSE_FORMAT = createJsonResponseFormat(
+  "story_bible",
+  {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      premise: { type: "string", maxLength: 900 },
+      themes: {
+        type: "array",
+        maxItems: 8,
+        items: { type: "string", maxLength: 120 },
+      },
+      stakes: { type: "string", maxLength: 900 },
+      worldRules: { type: "string", maxLength: 1200 },
+    },
+    required: ["premise", "themes", "stakes", "worldRules"],
+  }
+);
 
 function compactList(values: string[]): string {
   return values.map((value) => value.trim()).filter(Boolean).join(", ") || "none";
@@ -50,7 +76,8 @@ export function buildStoryBibleSuggestionInput(bundle: ProjectBundle): string {
 export function buildStoryBibleSuggestionContext(): string {
   return [
     "Write or refine the project's core story bible.",
-    "Return plain text using exactly this template. Keep the field labels exactly as written and write all values in the requested response language:",
+    "When a JSON schema is provided, return JSON matching it exactly. Otherwise use the plain-text template below.",
+    "For the plain-text fallback, keep the field labels exactly as written and write all values in the requested response language:",
     "Story Bible",
     "Premise: ...",
     "Themes: theme1, theme2, theme3",
@@ -65,6 +92,23 @@ export function buildStoryBibleSuggestionContext(): string {
 }
 
 export function parseStoryBibleSuggestion(text: string): Partial<StoryBibleSuggestionFields> {
+  const json = asRecord(parseStructuredJson(text));
+  if (json) {
+    const premise = asString(json.premise);
+    const themes = asStringArray(json.themes);
+    const stakes = asString(json.stakes);
+    const worldRules = asString(json.worldRules);
+
+    if (premise || themes.length > 0 || stakes || worldRules) {
+      return {
+        ...(premise ? { premise } : {}),
+        ...(themes.length > 0 ? { themes } : {}),
+        ...(stakes ? { stakes } : {}),
+        ...(worldRules ? { worldRules } : {}),
+      };
+    }
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const pattern =
     /(?:^|\n)\s*(?:\*\*)?\s*(Premise|Themes|Stakes|World rules)\s*:(?:\*\*)?\s*/gi;

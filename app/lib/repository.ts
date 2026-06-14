@@ -49,6 +49,12 @@ import type {
   WritingGoal,
 } from "@/app/domain/models";
 import { getDb } from "@/app/lib/db";
+import {
+  computeChapterWordTarget,
+  getDefaultStarterTemplate,
+  getStarterTemplate,
+  type StarterTemplateId,
+} from "@/app/lib/projectIntake";
 import { sanitizeTextForPreview, simpleChecksum } from "@/app/lib/hash";
 
 const GLOBAL_SETTINGS_STORAGE_KEY = "ai-novel-architect:global-settings";
@@ -196,6 +202,7 @@ export async function createProjectFromInput(input: {
   mode: "idea" | "outline" | "template" | "import";
   chapterCount?: number;
   outlineText?: string;
+  templateId?: StarterTemplateId;
 }): Promise<ProjectBundle> {
   const db = getDb();
   const project = createProject({
@@ -216,11 +223,25 @@ export async function createProjectFromInput(input: {
           .filter(Boolean)
       : [];
 
-  const chapterCount = Math.max(0, input.chapterCount ?? outlineLines.length);
+  const selectedTemplate =
+    input.mode === "template"
+      ? getStarterTemplate(input.templateId) ?? getDefaultStarterTemplate()
+      : null;
+  const seededChapterCount = selectedTemplate?.recommendedChapterCount ?? 0;
+  const chapterCount =
+    input.mode === "template"
+      ? Math.max(1, input.chapterCount ?? seededChapterCount)
+      : Math.max(0, input.chapterCount ?? outlineLines.length);
   const createdAt = now();
+  const chapterWordTarget = computeChapterWordTarget(input.targetWordCount, chapterCount || 1);
 
   const chapters: Chapter[] = Array.from({ length: chapterCount }, (_, index) =>
-    createChapter(project.id, index + 1)
+    selectedTemplate
+      ? {
+          ...createChapter(project.id, index + 1),
+          wordCountTarget: chapterWordTarget,
+        }
+      : createChapter(project.id, index + 1)
   );
 
   if (outlineLines.length > 0) {
@@ -236,9 +257,43 @@ export async function createProjectFromInput(input: {
     });
   }
 
+  if (selectedTemplate) {
+    selectedTemplate.chapterBlueprints.slice(0, chapterCount).forEach((seed, index) => {
+      if (!chapters[index]) return;
+      chapters[index] = {
+        ...chapters[index],
+        title: seed.title,
+        summary: seed.summary,
+        objectives: seed.objectives,
+        hook: seed.hook,
+        notes: seed.notes,
+        wordCountTarget: chapterWordTarget,
+        updatedAt: createdAt,
+      };
+    });
+  }
+
   const manuscript = createManuscript(project.id);
+  if (selectedTemplate) {
+    manuscript.manuscriptTitle = project.title;
+    manuscript.premise = input.synopsis.trim() || selectedTemplate.starterPremise;
+    manuscript.updatedAt = createdAt;
+  }
+
   const bible = createStoryBible(project.id);
+  if (selectedTemplate) {
+    bible.premise = input.synopsis.trim() || selectedTemplate.starterPremise;
+    bible.themes = selectedTemplate.starterThemes;
+    bible.stakes = selectedTemplate.starterStakes;
+    bible.worldRules = selectedTemplate.starterWorldRules;
+    bible.updatedAt = createdAt;
+  }
+
   const goal = createWritingGoal(project.id);
+  if (chapterCount > 0) {
+    goal.chapterWords = chapterWordTarget;
+    goal.updatedAt = createdAt;
+  }
   const checklist = createDefaultChecklist(project.id);
 
   await db.transaction(
@@ -529,6 +584,26 @@ export async function saveChapter(chapter: Chapter): Promise<Chapter> {
   };
   await db.chapters.put(updated);
   await updateProjectMeta(chapter.projectId, {});
+  return updated;
+}
+
+export async function saveChapters(chapters: Chapter[]): Promise<Chapter[]> {
+  if (chapters.length === 0) return [];
+
+  const db = getDb();
+  const timestamp = now();
+  const updated = chapters.map((chapter) => ({
+    ...chapter,
+    wordCountCurrent: wordCount(chapter.content),
+    updatedAt: timestamp,
+  }));
+
+  await db.transaction("rw", db.chapters, async () => {
+    await db.chapters.bulkPut(updated);
+  });
+
+  const projectIds = Array.from(new Set(updated.map((chapter) => chapter.projectId)));
+  await Promise.all(projectIds.map((projectId) => updateProjectMeta(projectId, {})));
   return updated;
 }
 

@@ -5,6 +5,7 @@ import {
   buildSceneDraftContext,
   buildSceneDraftInput,
   parseSceneCardSuggestions,
+  SCENE_CARDS_RESPONSE_FORMAT,
 } from "@/app/lib/ai/sceneCards";
 import type { ProjectBundle } from "@/app/domain/models";
 
@@ -275,6 +276,16 @@ function createBundle(): ProjectBundle {
 }
 
 describe("scene cards AI helpers", () => {
+  it("bounds structured scene generation for local models", () => {
+    const schema = SCENE_CARDS_RESPONSE_FORMAT.json_schema.schema as {
+      properties?: {
+        scenes?: { minItems?: number; maxItems?: number };
+      };
+    };
+
+    expect(schema.properties?.scenes).toMatchObject({ minItems: 3, maxItems: 4 });
+  });
+
   it("builds scene card suggestion input with tracker and canon context", () => {
     const input = buildSceneCardSuggestionInput(createBundle(), "chapter-2");
     const context = buildSceneCardSuggestionContext();
@@ -289,7 +300,7 @@ describe("scene cards AI helpers", () => {
     expect(input).toContain("Entity progression through current chapter:");
     expect(input).toContain("Existing scene cards in selected chapter:");
     expect(context).toContain("write all values in the requested response language");
-    expect(context).toContain("Suggest 3 to 6 scene cards.");
+    expect(context).toContain("Suggest 3 to 4 scene cards.");
     expect(context).toContain("per-entity chapter history");
   });
 
@@ -328,5 +339,25 @@ Draft text: A narrow lane rises from the canal stones, each slab painted with le
     expect(parsed[0]?.characters).toEqual(["Mira", "Jonas"]);
     expect(parsed[1]?.notes).toContain("hook");
     expect(parsed[1]?.draftText).toContain("narrow lane");
+  });
+
+  it("parses Ollama structured JSON output", () => {
+    const parsed = parseSceneCardSuggestions(
+      JSON.stringify({
+        scenes: [
+          {
+            title: "Le test",
+            description: "Mira ouvre l'atlas dans le marché.",
+            location: "Marché inondé",
+            characters: ["Mira", "Jonas"],
+            notes: "Jonas ment.",
+            draftText: "L'eau change brusquement de direction.",
+          },
+        ],
+      })
+    );
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.characters).toEqual(["Mira", "Jonas"]);
   });
 });

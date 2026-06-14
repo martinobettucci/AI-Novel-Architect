@@ -9,6 +9,14 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { buildEntityHistorySnapshot } from "@/app/lib/ai/entityHistory";
+import {
+  asFiniteNumber,
+  asRecord,
+  asRecordArray,
+  asString,
+  createJsonResponseFormat,
+  parseStructuredJson,
+} from "@/app/lib/ai/structuredOutput";
 
 type StoryWorldSection = "characters" | "locations" | "lore" | "timeline" | "relationships";
 
@@ -24,6 +32,132 @@ export interface StoryWorldSuggestion {
     }
   >;
 }
+
+const STRING_FIELD = { type: "string", maxLength: 180 };
+
+export const STORY_WORLD_RESPONSE_FORMAT = createJsonResponseFormat(
+  "story_world",
+  {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      characters: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            name: STRING_FIELD,
+            role: STRING_FIELD,
+            motivation: STRING_FIELD,
+            arc: STRING_FIELD,
+            voice: STRING_FIELD,
+            relationships: STRING_FIELD,
+            notes: STRING_FIELD,
+          },
+          required: [
+            "name",
+            "role",
+            "motivation",
+            "arc",
+            "voice",
+            "relationships",
+            "notes",
+          ],
+        },
+      },
+      locations: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            name: STRING_FIELD,
+            role: STRING_FIELD,
+            narrativeStatus: STRING_FIELD,
+            description: STRING_FIELD,
+            notes: STRING_FIELD,
+          },
+          required: ["name", "role", "narrativeStatus", "description", "notes"],
+        },
+      },
+      lore: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: STRING_FIELD,
+            category: STRING_FIELD,
+            status: STRING_FIELD,
+            description: STRING_FIELD,
+            notes: STRING_FIELD,
+          },
+          required: ["title", "category", "status", "description", "notes"],
+        },
+      },
+      timeline: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            order: { type: "integer" },
+            chapterNumber: { type: ["integer", "null"] },
+            label: STRING_FIELD,
+            details: STRING_FIELD,
+            impact: STRING_FIELD,
+          },
+          required: ["order", "chapterNumber", "label", "details", "impact"],
+        },
+      },
+      relationships: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            sourceType: {
+              type: "string",
+              enum: ["character", "location", "lore", "timeline_event"],
+            },
+            source: STRING_FIELD,
+            targetType: {
+              type: "string",
+              enum: ["character", "location", "lore", "timeline_event"],
+            },
+            target: STRING_FIELD,
+            relationType: STRING_FIELD,
+            status: STRING_FIELD,
+            intensity: { type: "integer", minimum: 1, maximum: 5 },
+            notes: STRING_FIELD,
+          },
+          required: [
+            "sourceType",
+            "source",
+            "targetType",
+            "target",
+            "relationType",
+            "status",
+            "intensity",
+            "notes",
+          ],
+        },
+      },
+    },
+    required: ["characters", "locations", "lore", "timeline", "relationships"],
+  }
+);
 
 function compactList(values: string[]): string {
   return values.map((value) => value.trim()).filter(Boolean).join(", ") || "none";
@@ -166,8 +300,11 @@ export function buildStoryWorldSuggestionContext(): string {
     "Suggest a structured story-world scaffold for the story bible.",
     "Use the project synopsis, story bible, chapters, story-wide registries, and per-entity chapter history timeline as canon.",
     "Prefer updating and completing the current structure rather than inventing a disconnected one.",
+    "Classify each entity in exactly one correct array. Never place locations, lore, timeline events, or relationships in the characters array.",
+    "Keep the scaffold compact: at most 3 characters, 3 locations, 3 lore entries, 4 timeline events, and 4 relationships per run.",
     "Story-wide registries define baseline canon. Per-entity chapter history explains when those entities or relationships enter, change, or become unavailable chapter by chapter.",
-    "Return plain text using exactly this template. Keep the field labels exactly as written and write all values in the requested response language:",
+    "When a JSON schema is provided, return JSON matching it exactly. Otherwise use the plain-text template below.",
+    "For the plain-text fallback, keep the field labels exactly as written and write all values in the requested response language:",
     "Story World Scaffold",
     "[Characters]",
     "- name: ... | role: ... | motivation: ... | arc: ... | voice: ... | relationships: ... | notes: ...",
@@ -235,6 +372,86 @@ function parseTrackedEntityType(value: string): TrackedEntityType | null {
 }
 
 export function parseStoryWorldSuggestion(text: string): StoryWorldSuggestion {
+  const json = asRecord(parseStructuredJson(text));
+  if (json) {
+    const characters = asRecordArray(json.characters)
+      .map((entry) => ({
+        name: asString(entry.name),
+        role: asString(entry.role),
+        motivation: asString(entry.motivation),
+        arc: asString(entry.arc),
+        voice: asString(entry.voice),
+        relationships: asString(entry.relationships),
+        notes: asString(entry.notes),
+      }))
+      .filter((entry) => entry.name);
+    const locations = asRecordArray(json.locations)
+      .map((entry) => ({
+        name: asString(entry.name),
+        role: asString(entry.role),
+        narrativeStatus: asString(entry.narrativeStatus),
+        description: asString(entry.description),
+        notes: asString(entry.notes),
+      }))
+      .filter((entry) => entry.name);
+    const lore = asRecordArray(json.lore)
+      .map((entry) => ({
+        title: asString(entry.title),
+        category: asString(entry.category),
+        status: asString(entry.status),
+        description: asString(entry.description),
+        notes: asString(entry.notes),
+      }))
+      .filter((entry) => entry.title);
+    const timeline = asRecordArray(json.timeline)
+      .map((entry) => ({
+        order: asFiniteNumber(entry.order) ?? 0,
+        chapterNumber: asFiniteNumber(entry.chapterNumber) ?? undefined,
+        label: asString(entry.label),
+        details: asString(entry.details),
+        impact: asString(entry.impact),
+      }))
+      .filter((entry) => entry.label);
+    const relationships = asRecordArray(json.relationships)
+      .map((entry) => {
+        const sourceType = parseTrackedEntityType(asString(entry.sourceType));
+        const targetType = parseTrackedEntityType(asString(entry.targetType));
+        const intensity = asFiniteNumber(entry.intensity) ?? 3;
+        return {
+          sourceType,
+          source: asString(entry.source),
+          targetType,
+          target: asString(entry.target),
+          relationType: asString(entry.relationType),
+          status: asString(entry.status),
+          intensity: Math.min(5, Math.max(1, Math.round(intensity))),
+          notes: asString(entry.notes),
+        };
+      })
+      .filter(
+        (entry) =>
+          entry.sourceType != null &&
+          entry.targetType != null &&
+          Boolean(entry.source) &&
+          Boolean(entry.target)
+      )
+      .map((entry) => ({
+        ...entry,
+        sourceType: entry.sourceType as TrackedEntityType,
+        targetType: entry.targetType as TrackedEntityType,
+      }));
+
+    if (
+      characters.length > 0 ||
+      locations.length > 0 ||
+      lore.length > 0 ||
+      timeline.length > 0 ||
+      relationships.length > 0
+    ) {
+      return { characters, locations, lore, timeline, relationships };
+    }
+  }
+
   const normalized = text.replace(/\r\n/g, "\n").trim();
   const sections: Array<{ key: StoryWorldSection; label: string }> = [
     { key: "characters", label: "Characters" },

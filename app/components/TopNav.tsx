@@ -7,8 +7,8 @@ import { useI18n } from "@/app/i18n/I18nProvider";
 
 function navClass(active: boolean): string {
   return active
-    ? "rounded-md bg-cyan-100 px-3 py-1.5 text-sm font-semibold text-cyan-900"
-    : "rounded-md px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100";
+    ? "nav-link nav-link--active"
+    : "nav-link";
 }
 
 export default function TopNav() {
@@ -19,13 +19,18 @@ export default function TopNav() {
   const settingsActive = pathname.startsWith("/settings") || pathname.startsWith("/admin");
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-lg font-black tracking-tight text-slate-900">
-            {t("app.title")}
+    <header className="nav-shell">
+      <div className="nav-inner">
+        <div className="nav-brand">
+          <Link href="/" className="nav-brand__home">
+            <span className="nav-brandmark" aria-hidden>
+              A
+            </span>
+            <span className="nav-brand__copy">
+              <span className="nav-title">{t("app.title")}</span>
+            </span>
           </Link>
-          <nav className="hidden items-center gap-1 sm:flex">
+          <nav className="nav-links" aria-label="Primary">
             <Link href="/" className={navClass(dashboardActive)}>
               {t("nav.dashboard")}
             </Link>
@@ -35,9 +40,8 @@ export default function TopNav() {
           </nav>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <LanguageSwitcher mode="ui" />
-          <LanguageSwitcher />
+        <div className="nav-utility">
+          <LanguageSwitcher mode="ui" compact />
         </div>
       </div>
     </header>

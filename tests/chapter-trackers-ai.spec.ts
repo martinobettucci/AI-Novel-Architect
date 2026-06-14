@@ -309,4 +309,45 @@ End-of-chapter state: Mira ends chapter two emboldened, more knowledgeable, and 
       entityId: "relation-1",
     });
   });
+
+  it("parses Ollama structured JSON trackers and entity history", () => {
+    const parsed = parseChapterTrackerComputation(
+      JSON.stringify({
+        reports: [
+          {
+            trackerType: "characters",
+            previousState: "Mira reste méfiante.",
+            chapterEvolution: "Elle teste publiquement l'atlas.",
+            finalState: "Elle devient visible et vulnérable.",
+          },
+          {
+            trackerType: "relationships",
+            previousState: "Mira se méfie de l'atlas.",
+            chapterEvolution: "Le lien devient impossible à cacher.",
+            finalState: "Mira est publiquement liée à l'atlas.",
+          },
+        ],
+        entityHistory: [
+          {
+            entityType: "character",
+            entity: "Mira",
+            label: "Mira",
+            sourceType: "",
+            source: "",
+            targetType: "",
+            target: "",
+            relationType: "",
+            note: "Mira prouve que l'atlas fonctionne.",
+          },
+        ],
+      }),
+      createBundle()
+    );
+
+    expect(parsed.reports).toHaveLength(2);
+    expect(parsed.entityHistory[0]).toMatchObject({
+      entityType: "character",
+      entityId: "char-1",
+    });
+  });
 });

@@ -6,9 +6,11 @@ import { useI18n } from "@/app/i18n/I18nProvider";
 export default function LanguageSwitcher({
   projectId,
   mode = "writing",
+  compact = false,
 }: {
   projectId?: string;
   mode?: "writing" | "ui";
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const uiLocale = useSettingsStore((state) => state.uiLocale);
@@ -22,8 +24,12 @@ export default function LanguageSwitcher({
   const ariaLabel = isUiSwitcher ? "UI language selector" : "Writing language selector";
 
   return (
-    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-      <span>{label}</span>
+    <label
+      className={`language-switcher ${
+        compact ? "language-switcher--compact" : "language-switcher--inline"
+      }`}
+    >
+      <span className="language-switcher__label">{label}</span>
       <select
         aria-label={ariaLabel}
         value={value}
@@ -35,9 +41,9 @@ export default function LanguageSwitcher({
             return;
           }
 
-          void saveScope(projectId ? "project" : "global", { locale: next }, projectId);
+            void saveScope(projectId ? "project" : "global", { locale: next }, projectId);
         }}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+        className="language-switcher__select"
       >
         <option value="fr">{t("common.french")}</option>
         <option value="en">{t("common.english")}</option>

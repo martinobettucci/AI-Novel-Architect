@@ -123,4 +123,18 @@ Salt water preserves memory; fresh water erases it.`);
     expect(parsed.stakes).toContain("drowned city");
     expect(parsed.worldRules).toContain("fresh water erases it");
   });
+
+  it("parses Ollama structured JSON output", () => {
+    const parsed = parseStoryBibleSuggestion(
+      JSON.stringify({
+        premise: "Une cartographe découvre que ses cartes altèrent la ville.",
+        themes: ["mémoire", "pouvoir"],
+        stakes: "La ville entière peut être effacée.",
+        worldRules: "Toute modification exige une perte équivalente.",
+      })
+    );
+
+    expect(parsed.themes).toEqual(["mémoire", "pouvoir"]);
+    expect(parsed.worldRules).toContain("perte équivalente");
+  });
 });

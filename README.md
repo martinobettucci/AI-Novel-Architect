@@ -44,6 +44,16 @@ Coverage gate is enforced in `vitest.config.ts`.
 - `GET /api/ai/models`
 - `POST /api/ai/run`
 
+## Ollama
+
+The default provider is the LAN Ollama instance at
+`http://192.168.0.37:11434` with model `gpt-oss:20b`.
+
+- Enter the Ollama server root URL only; `/v1` and `/api` suffixes are normalized.
+- The app uses OpenAI-compatible chat completions and falls back to native `/api/chat`.
+- Structured generators use JSON schema output; prose generators remain plain text.
+- Ollama normally serves HTTP on port `11434`. Use HTTPS only behind a configured TLS proxy.
+
 Legacy endpoints are still mapped for compatibility:
 
 - `/api/gemini-status`
@@ -53,5 +63,5 @@ Legacy endpoints are still mapped for compatibility:
 
 ## Notes
 
-- Data is local-first and stored in IndexedDB (`ai-novel-architect-v2`), with hard-reset policy (legacy data is not migrated).
+- Data is local-first and stored in IndexedDB (`ai-novel-architect-v3`).
 - No direct third-party publishing platform integrations are included.

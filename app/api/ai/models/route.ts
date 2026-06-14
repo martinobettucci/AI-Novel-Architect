@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  connectionErrorMessage,
   openAiHeaders,
   readApiErrorMessage,
   readOpenAiConfigFromHeaders,
@@ -17,17 +18,28 @@ export async function GET(req: NextRequest) {
   const config = readOpenAiConfigFromHeaders(req.headers);
 
   try {
-    const res = await fetch(config.modelsEndpoint, {
+    let endpoint = config.modelsEndpoint;
+    let res = await fetch(endpoint, {
       method: "GET",
       headers: openAiHeaders(config.apiKey),
+      signal: AbortSignal.timeout(30_000),
     });
+
+    if (res.status === 404 || res.status === 405 || res.status === 501) {
+      endpoint = config.ollamaModelsEndpoint;
+      res = await fetch(endpoint, {
+        method: "GET",
+        headers: openAiHeaders(config.apiKey),
+        signal: AbortSignal.timeout(30_000),
+      });
+    }
 
     if (!res.ok) {
       const message = await readApiErrorMessage(res);
       return NextResponse.json(
         {
           error: message,
-          endpoint: config.modelsEndpoint,
+          endpoint,
           baseUrl: config.baseUrl,
         },
         { status: 502 }
@@ -51,14 +63,14 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       baseUrl: config.baseUrl,
-      endpoint: config.modelsEndpoint,
+      endpoint,
       selectedModel: config.model,
       models,
     });
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Network error",
+        error: connectionErrorMessage(config.baseUrl, error),
         endpoint: config.modelsEndpoint,
         baseUrl: config.baseUrl,
       },

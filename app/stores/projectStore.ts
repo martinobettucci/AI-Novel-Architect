@@ -21,6 +21,7 @@ import type {
   TimelineEvent,
   WritingGoal,
 } from "@/app/domain/models";
+import type { StarterTemplateId } from "@/app/lib/projectIntake";
 import {
   addChapter,
   addScene,
@@ -56,6 +57,7 @@ import {
   restoreSnapshot,
   saveAnnotation,
   saveChapter,
+  saveChapters,
   saveChapterTrackerReport,
   saveCharacterProfile,
   saveChecklistItem,
@@ -92,6 +94,7 @@ interface ProjectState {
     mode: "idea" | "outline" | "template" | "import";
     chapterCount?: number;
     outlineText?: string;
+    templateId?: StarterTemplateId;
   }) => Promise<ProjectBundle>;
   duplicateActiveProject: () => Promise<ProjectBundle | null>;
   archiveProjectById: (projectId: string, status: Project["status"]) => Promise<void>;
@@ -104,6 +107,7 @@ interface ProjectState {
   saveProjectMeta: (patch: Partial<Project>) => Promise<void>;
   saveStoryBible: (bible: StoryBible) => Promise<void>;
   saveChapter: (chapter: Chapter) => Promise<void>;
+  saveChapters: (chapters: Chapter[]) => Promise<void>;
   saveChapterTrackerReport: (report: ChapterTrackerReport) => Promise<void>;
   addChapter: () => Promise<void>;
   deleteChapter: (chapterId: string) => Promise<void>;
@@ -275,6 +279,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   saveChapter: async (chapter) => {
     await saveChapter(chapter);
+    const active = get().activeProject;
+    if (active) await refreshActive(set, active.project.id);
+  },
+  saveChapters: async (chapters) => {
+    await saveChapters(chapters);
     const active = get().activeProject;
     if (active) await refreshActive(set, active.project.id);
   },

@@ -16,7 +16,7 @@ import type {
   WritingGoal,
 } from "./models";
 
-export const DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434";
+export const DEFAULT_LLM_BASE_URL = "http://192.168.0.37:11434";
 export const DEFAULT_LLM_MODEL = "gpt-oss:20b";
 
 export const DEFAULT_SETTINGS: AppSettings = {

@@ -276,6 +276,24 @@ Story so far: Mira stole a forbidden map and learned the regime hid more than co
     expect(parsed.storySoFar).toContain("forbidden map");
   });
 
+  it("parses Ollama structured JSON output", () => {
+    const parsed = parseChapterDetailsSuggestion(
+      JSON.stringify({
+        title: "Le marché déplacé",
+        summary: "Mira teste l'atlas au milieu des canaux.",
+        objectives: ["Tester l'atlas", "Contraindre Jonas à parler"],
+        hook: "Une rue porte l'écriture de son frère.",
+        storySoFar: "Mira s'est enfuie avec la carte.",
+      })
+    );
+
+    expect(parsed.objectives).toEqual([
+      "Tester l'atlas",
+      "Contraindre Jonas à parler",
+    ]);
+    expect(parsed.hook).toContain("frère");
+  });
+
   it("accepts bolded labels and pipe-separated objectives", () => {
     const parsed = parseChapterDetailsSuggestion(`Chapter Details
 **Title:** The Tidal Blueprint
