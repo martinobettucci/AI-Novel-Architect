@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from "dexie";
 import type {
   AiAction,
   Annotation,
+  CanonDelta,
   Chapter,
   ChapterTrackerReport,
   CharacterProfile,
@@ -20,6 +21,7 @@ import type {
   StoryBible,
   TimelineEvent,
   WritingGoal,
+  WritingSession,
 } from "@/app/domain/models";
 
 const DB_NAME = "ai-novel-architect-v3";
@@ -44,6 +46,8 @@ export class NovelArchitectDb extends Dexie {
   snapshots!: EntityTable<Snapshot, "id">;
   aiActions!: EntityTable<AiAction, "id">;
   chapterTrackerReports!: EntityTable<ChapterTrackerReport, "id">;
+  canonDeltas!: EntityTable<CanonDelta, "id">;
+  writingSessions!: EntityTable<WritingSession, "id">;
   settingsProfiles!: EntityTable<SettingsProfile, "id">;
 
   constructor() {
@@ -112,6 +116,31 @@ export class NovelArchitectDb extends Dexie {
       snapshots: "id, projectId, chapterId, createdAt",
       aiActions: "id, projectId, chapterId, status, createdAt",
       chapterTrackerReports: "id, projectId, chapterId, trackerType, updatedAt",
+      settingsProfiles: "id, scope, projectId, featureKey, updatedAt",
+    });
+
+    this.version(4).stores({
+      projects: "id, status, updatedAt",
+      manuscripts: "projectId, updatedAt",
+      chapters: "id, projectId, number, updatedAt",
+      scenes: "id, projectId, chapterId, order, updatedAt",
+      bibles: "id, projectId, updatedAt",
+      characters: "id, projectId, updatedAt",
+      locations: "id, projectId, updatedAt",
+      loreEntries: "id, projectId, updatedAt",
+      timelineEvents: "id, projectId, order, updatedAt",
+      narrativeRelationships: "id, projectId, sourceId, targetId, updatedAt",
+      entityProgression: "id, projectId, chapterId, sceneId, entityId, updatedAt",
+      entityHistory: "id, projectId, chapterId, entityType, entityId, updatedAt",
+      revisionIssues: "id, projectId, chapterId, status, updatedAt",
+      checklistItems: "id, projectId, scope, done, updatedAt",
+      annotations: "id, projectId, chapterId, updatedAt",
+      writingGoals: "id, projectId, updatedAt",
+      snapshots: "id, projectId, chapterId, createdAt",
+      aiActions: "id, projectId, chapterId, status, createdAt",
+      chapterTrackerReports: "id, projectId, chapterId, trackerType, updatedAt",
+      canonDeltas: "id, projectId, chapterId, entityType, entityId, status, updatedAt",
+      writingSessions: "id, projectId, date, updatedAt",
       settingsProfiles: "id, scope, projectId, featureKey, updatedAt",
     });
   }

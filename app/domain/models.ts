@@ -50,6 +50,62 @@ export type DetectionStrength =
   | "conflict"
   | "insufficient_evidence";
 
+export type DeltaStatus = "proposed" | "validated" | "rejected";
+
+export type DeltaLayer =
+  | "startState"
+  | "endState"
+  | "knowledge"
+  | "belief"
+  | "inventory"
+  | "narrationStatus"
+  | "summary"
+  | "relationship";
+
+export type VerifierVerdict = "accepted" | "uncertain" | "rejected";
+
+/** A text span from the manuscript that justifies a proposed canon change. */
+export interface EvidenceSpan {
+  chapterId?: string;
+  quote: string;
+  note?: string;
+}
+
+/**
+ * A structured, evidence-backed proposal to change one layer of one tracked
+ * entity. Canon never mutates until a delta is explicitly validated.
+ */
+export interface CanonDelta {
+  id: string;
+  projectId: string;
+  chapterId?: string;
+  entityType: HistoryEntityType | "chapter";
+  entityId: string;
+  entityLabel: string;
+  layer: DeltaLayer;
+  before: string;
+  after: string;
+  confidence: DetectionStrength;
+  rationale: string;
+  evidence: EvidenceSpan[];
+  status: DeltaStatus;
+  source: "ai" | "author";
+  verifierVerdict: VerifierVerdict;
+  verifierReason: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
+
+/** Per-day writing throughput, used to measure progress against goals. */
+export interface WritingSession {
+  id: string;
+  projectId: string;
+  date: string;
+  wordsWritten: number;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   title: string;
@@ -350,6 +406,8 @@ export interface ProjectBundle {
   snapshots: Snapshot[];
   aiActions: AiAction[];
   chapterTrackerReports: ChapterTrackerReport[];
+  canonDeltas: CanonDelta[];
+  writingSessions: WritingSession[];
 }
 
 export interface PublishingArtifacts {

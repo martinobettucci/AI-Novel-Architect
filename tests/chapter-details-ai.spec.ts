@@ -206,6 +206,8 @@ function createBundle(): ProjectBundle {
     },
     snapshots: [],
     aiActions: [],
+    canonDeltas: [],
+    writingSessions: [],
     chapterTrackerReports: [
       {
         id: "tracker-1",

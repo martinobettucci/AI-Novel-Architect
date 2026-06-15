@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  CanonDelta,
   Chapter,
   ChapterTrackerReport,
   ChapterTrackerType,
@@ -14,6 +15,7 @@ import type {
   Project,
   StoryBible,
   WritingGoal,
+  WritingSession,
 } from "./models";
 
 export const DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434";
@@ -223,6 +225,50 @@ export function createChapterTrackerReport(
     finalState: "",
     rawResponse: "",
     updatedAt: now(),
+  };
+}
+
+/** Local calendar day key (YYYY-MM-DD) used to bucket writing sessions. */
+export function dayKey(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, "0");
+  const d = `${date.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function createWritingSession(projectId: string, date = dayKey()): WritingSession {
+  return {
+    id: `${projectId}:${date}`,
+    projectId,
+    date,
+    wordsWritten: 0,
+    updatedAt: now(),
+  };
+}
+
+export function createCanonDelta(projectId: string, patch?: Partial<CanonDelta>): CanonDelta {
+  const timestamp = now();
+  return {
+    id: createId("delta"),
+    projectId,
+    chapterId: undefined,
+    entityType: "character",
+    entityId: "",
+    entityLabel: "",
+    layer: "endState",
+    before: "",
+    after: "",
+    confidence: "explicit",
+    rationale: "",
+    evidence: [],
+    status: "proposed",
+    source: "author",
+    verifierVerdict: "uncertain",
+    verifierReason: "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    resolvedAt: undefined,
+    ...patch,
   };
 }
 

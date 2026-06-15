@@ -12,6 +12,8 @@ import {
   createProject,
   createStoryBible,
   createWritingGoal,
+  createWritingSession,
+  dayKey,
   DEFAULT_SETTINGS,
 } from "@/app/domain/defaults";
 import type {
@@ -20,12 +22,15 @@ import type {
   AiActionType,
   Annotation,
   AppSettings,
+  CanonDelta,
   Chapter,
   ChapterTrackerReport,
   CharacterProfile,
   ChapterTrackerType,
   ChecklistItem,
   ContinuityConflict,
+  DeltaLayer,
+  DeltaStatus,
   EntityHistoryEntry,
   EntityProgression,
   LocationProfile,
@@ -45,9 +50,12 @@ import type {
   Snapshot,
   StoryBible,
   TimelineEvent,
+  TrackedEntityType,
+  VerifierVerdict,
   WritingGoal,
+  WritingSession,
 } from "@/app/domain/models";
-import { getDb } from "@/app/lib/db";
+import { getDb, type NovelArchitectDb } from "@/app/lib/db";
 import { sanitizeTextForPreview, simpleChecksum } from "@/app/lib/hash";
 
 const GLOBAL_SETTINGS_STORAGE_KEY = "ai-novel-architect:global-settings";
@@ -94,6 +102,8 @@ function emptyProjectBundle(project: Project): ProjectBundle {
     snapshots: [],
     aiActions: [],
     chapterTrackerReports: [],
+    canonDeltas: [],
+    writingSessions: [],
   };
 }
 
@@ -140,6 +150,8 @@ export async function getProjectBundle(projectId: string): Promise<ProjectBundle
     snapshots,
     aiActions,
     chapterTrackerReports,
+    canonDeltas,
+    writingSessions,
   ] =
     await Promise.all([
       db.chapters.where("projectId").equals(projectId).sortBy("number"),
@@ -159,6 +171,8 @@ export async function getProjectBundle(projectId: string): Promise<ProjectBundle
       db.snapshots.where("projectId").equals(projectId).reverse().sortBy("createdAt"),
       db.aiActions.where("projectId").equals(projectId).reverse().sortBy("createdAt"),
       db.chapterTrackerReports.where("projectId").equals(projectId).toArray(),
+      db.canonDeltas.where("projectId").equals(projectId).reverse().sortBy("createdAt"),
+      db.writingSessions.where("projectId").equals(projectId).toArray(),
     ]);
 
   return {
@@ -181,6 +195,8 @@ export async function getProjectBundle(projectId: string): Promise<ProjectBundle
     snapshots,
     aiActions,
     chapterTrackerReports,
+    canonDeltas,
+    writingSessions,
   };
 }
 
@@ -448,11 +464,23 @@ export async function duplicateProject(projectId: string): Promise<ProjectBundle
 
   duplicated.snapshots = [];
   duplicated.aiActions = [];
+  duplicated.writingSessions = [];
   duplicated.chapterTrackerReports = duplicated.chapterTrackerReports.map((report) => ({
     ...report,
     id: createId("chapter-tracker"),
     projectId: newProjectId,
     chapterId: chapterMap.get(report.chapterId) ?? report.chapterId,
+    updatedAt: timestamp,
+  }));
+  duplicated.canonDeltas = duplicated.canonDeltas.map((delta) => ({
+    ...delta,
+    id: createId("delta"),
+    projectId: newProjectId,
+    chapterId: delta.chapterId ? chapterMap.get(delta.chapterId) ?? delta.chapterId : undefined,
+    entityId:
+      delta.entityType === "chapter"
+        ? chapterMap.get(delta.entityId) ?? delta.entityId
+        : entityMap.get(`${delta.entityType}:${delta.entityId}`) ?? delta.entityId,
     updatedAt: timestamp,
   }));
 
@@ -488,6 +516,8 @@ export async function deleteProject(projectId: string): Promise<void> {
       db.snapshots,
       db.aiActions,
       db.chapterTrackerReports,
+      db.canonDeltas,
+      db.writingSessions,
     ],
     async () => {
       await db.projects.delete(projectId);
@@ -509,6 +539,8 @@ export async function deleteProject(projectId: string): Promise<void> {
       await db.snapshots.where("projectId").equals(projectId).delete();
       await db.aiActions.where("projectId").equals(projectId).delete();
       await db.chapterTrackerReports.where("projectId").equals(projectId).delete();
+      await db.canonDeltas.where("projectId").equals(projectId).delete();
+      await db.writingSessions.where("projectId").equals(projectId).delete();
     }
   );
 }
@@ -521,12 +553,18 @@ export async function saveManuscript(manuscript: Manuscript): Promise<void> {
 
 export async function saveChapter(chapter: Chapter): Promise<Chapter> {
   const db = getDb();
+  const previous = await db.chapters.get(chapter.id);
+  const nextCount = wordCount(chapter.content);
   const updated: Chapter = {
     ...chapter,
-    wordCountCurrent: wordCount(chapter.content),
+    wordCountCurrent: nextCount,
     updatedAt: now(),
   };
   await db.chapters.put(updated);
+  if (previous) {
+    const written = nextCount - previous.wordCountCurrent;
+    if (written > 0) await recordWritingProgress(chapter.projectId, written);
+  }
   await updateProjectMeta(chapter.projectId, {});
   return updated;
 }
@@ -1147,6 +1185,251 @@ export async function saveChapterTrackerReport(
   return updated;
 }
 
+// --- Canon deltas: the proposed → validated → canon governance loop ---------
+
+const PROGRESSION_LAYERS: DeltaLayer[] = [
+  "startState",
+  "endState",
+  "knowledge",
+  "belief",
+  "inventory",
+  "narrationStatus",
+];
+
+type ProgressionLayer =
+  | "startState"
+  | "endState"
+  | "knowledge"
+  | "belief"
+  | "inventory"
+  | "narrationStatus";
+
+function isProgressionLayer(layer: DeltaLayer): layer is ProgressionLayer {
+  return (PROGRESSION_LAYERS as string[]).includes(layer);
+}
+
+/**
+ * Deterministic verifier: a proposed change is only "accepted" when every cited
+ * evidence quote is actually present in the supplied chapter text. This enforces
+ * the governance rule that canon must never mutate without traceable evidence.
+ */
+export function verifyCanonDelta(
+  delta: Pick<CanonDelta, "after" | "confidence" | "evidence">,
+  chapterText: string
+): { verdict: VerifierVerdict; reason: string } {
+  if (!delta.after.trim()) {
+    return { verdict: "rejected", reason: "The proposed value is empty." };
+  }
+
+  const haystack = plainText(chapterText).toLocaleLowerCase();
+  const quotes = delta.evidence.map((item) => item.quote.trim()).filter(Boolean);
+
+  if (quotes.length === 0) {
+    return {
+      verdict: "uncertain",
+      reason: "No evidence span was provided to support this change.",
+    };
+  }
+
+  const supported = quotes.filter((quote) =>
+    haystack.includes(plainText(quote).toLocaleLowerCase())
+  );
+
+  if (supported.length === quotes.length) {
+    return {
+      verdict: "accepted",
+      reason: `All ${quotes.length} evidence span(s) were found in the chapter text.`,
+    };
+  }
+  if (supported.length === 0) {
+    return {
+      verdict: "rejected",
+      reason: "None of the cited evidence spans appear in the chapter text.",
+    };
+  }
+  return {
+    verdict: "uncertain",
+    reason: `${supported.length}/${quotes.length} evidence spans were found in the chapter text.`,
+  };
+}
+
+export async function saveCanonDelta(delta: CanonDelta): Promise<CanonDelta> {
+  const db = getDb();
+  const updated: CanonDelta = {
+    ...delta,
+    id: delta.id || createId("delta"),
+    updatedAt: now(),
+  };
+  await db.canonDeltas.put(updated);
+  await updateProjectMeta(delta.projectId, {});
+  return updated;
+}
+
+export async function deleteCanonDelta(deltaId: string): Promise<void> {
+  const db = getDb();
+  const delta = await db.canonDeltas.get(deltaId);
+  if (!delta) return;
+  await db.canonDeltas.delete(deltaId);
+  await updateProjectMeta(delta.projectId, {});
+}
+
+function appendNote(existing: string, addition: string): string {
+  if (!addition.trim()) return existing;
+  return existing.trim() ? `${existing.trim()}\n${addition.trim()}` : addition.trim();
+}
+
+async function applyDeltaToCanon(db: NovelArchitectDb, delta: CanonDelta): Promise<void> {
+  if (delta.entityType === "chapter" && delta.layer === "summary") {
+    const chapter = await db.chapters.get(delta.entityId);
+    if (chapter) {
+      await db.chapters.put({ ...chapter, summary: delta.after, updatedAt: now() });
+    }
+    return;
+  }
+
+  if (delta.entityType === "relationship" && delta.layer === "relationship") {
+    const relationship = await db.narrativeRelationships.get(delta.entityId);
+    if (relationship) {
+      await db.narrativeRelationships.put({
+        ...relationship,
+        status: delta.after || relationship.status,
+        notes: appendNote(relationship.notes, delta.rationale),
+        updatedAt: now(),
+      });
+    }
+    return;
+  }
+
+  if (
+    isProgressionLayer(delta.layer) &&
+    delta.entityType !== "chapter" &&
+    delta.entityType !== "relationship"
+  ) {
+    const entityType = delta.entityType as TrackedEntityType;
+    const rows = await db.entityProgression.where("projectId").equals(delta.projectId).toArray();
+    const existing = rows.find(
+      (row) =>
+        row.entityType === entityType &&
+        row.entityId === delta.entityId &&
+        (row.chapterId ?? "") === (delta.chapterId ?? "")
+    );
+
+    const evidenceText = delta.evidence
+      .map((item) => item.quote)
+      .filter(Boolean)
+      .join("\n");
+
+    const base: EntityProgression =
+      existing ?? {
+        ...createEntityProgression(delta.projectId),
+        entityType,
+        entityId: delta.entityId,
+        label: delta.entityLabel,
+        chapterId: delta.chapterId,
+      };
+
+    const updated: EntityProgression = {
+      ...base,
+      label: base.label || delta.entityLabel,
+      evidence: evidenceText || base.evidence,
+      validatedDelta: delta.after,
+      confidence: delta.confidence,
+      updatedAt: now(),
+    };
+    updated[delta.layer] = delta.after;
+
+    await db.entityProgression.put(updated);
+  }
+}
+
+export async function approveCanonDelta(deltaId: string): Promise<CanonDelta | null> {
+  const db = getDb();
+  const delta = await db.canonDeltas.get(deltaId);
+  if (!delta) return null;
+
+  const timestamp = now();
+  await db.transaction(
+    "rw",
+    [db.canonDeltas, db.chapters, db.narrativeRelationships, db.entityProgression],
+    async () => {
+      await applyDeltaToCanon(db, delta);
+      await db.canonDeltas.put({
+        ...delta,
+        status: "validated",
+        resolvedAt: timestamp,
+        updatedAt: timestamp,
+      });
+    }
+  );
+
+  // Provenance: every canon mutation leaves an auditable trace.
+  await logAiAction({
+    projectId: delta.projectId,
+    chapterId: delta.chapterId,
+    action: "consistency_check",
+    status: "completed",
+    model: "(local validation)",
+    providerBaseUrl: "(canon)",
+    inputPreview: `${delta.entityLabel} · ${delta.layer}: ${delta.before}`,
+    outputPreview: delta.after,
+    metadata: {
+      feature: "canon_delta_validated",
+      deltaId: delta.id,
+      entityType: delta.entityType,
+      layer: delta.layer,
+      confidence: delta.confidence,
+      verifierVerdict: delta.verifierVerdict,
+      evidenceCount: delta.evidence.length,
+    },
+  });
+
+  await updateProjectMeta(delta.projectId, {});
+  return (await db.canonDeltas.get(deltaId)) ?? null;
+}
+
+export async function rejectCanonDelta(deltaId: string): Promise<CanonDelta | null> {
+  const db = getDb();
+  const delta = await db.canonDeltas.get(deltaId);
+  if (!delta) return null;
+  const timestamp = now();
+  const updated: CanonDelta = {
+    ...delta,
+    status: "rejected" as DeltaStatus,
+    resolvedAt: timestamp,
+    updatedAt: timestamp,
+  };
+  await db.canonDeltas.put(updated);
+  await updateProjectMeta(delta.projectId, {});
+  return updated;
+}
+
+export function canonDeltasForChapter(bundle: ProjectBundle, chapterId: string): CanonDelta[] {
+  return bundle.canonDeltas.filter((delta) => delta.chapterId === chapterId);
+}
+
+// --- Writing sessions: per-day throughput against goals ----------------------
+
+export async function recordWritingProgress(
+  projectId: string,
+  deltaWords: number
+): Promise<WritingSession | null> {
+  if (deltaWords <= 0) return null;
+  const db = getDb();
+  const date = dayKey();
+  const id = `${projectId}:${date}`;
+  const existing = await db.writingSessions.get(id);
+  const session: WritingSession = existing
+    ? { ...existing, wordsWritten: existing.wordsWritten + deltaWords, updatedAt: now() }
+    : { ...createWritingSession(projectId, date), wordsWritten: deltaWords };
+  await db.writingSessions.put(session);
+  return session;
+}
+
+export function wordsWrittenToday(bundle: ProjectBundle): number {
+  const date = dayKey();
+  return bundle.writingSessions.find((session) => session.date === date)?.wordsWritten ?? 0;
+}
+
 function profileId(scope: SettingsProfile["scope"], projectId?: string, featureKey?: string): string {
   if (scope === "global") return "global";
   if (scope === "project") return `project:${projectId}`;
@@ -1705,6 +1988,8 @@ function parseImportedJson(raw: string): ProjectBundle {
     ? bundle.chapterTrackerReports
     : [];
   bundle.entityHistory = Array.isArray(bundle.entityHistory) ? bundle.entityHistory : [];
+  bundle.canonDeltas = Array.isArray(bundle.canonDeltas) ? bundle.canonDeltas : [];
+  bundle.writingSessions = Array.isArray(bundle.writingSessions) ? bundle.writingSessions : [];
   return bundle;
 }
 
@@ -1813,6 +2098,8 @@ export async function insertProjectBundle(bundle: ProjectBundle): Promise<void> 
       db.snapshots,
       db.aiActions,
       db.chapterTrackerReports,
+      db.canonDeltas,
+      db.writingSessions,
     ],
     async () => {
       await db.projects.put(bundle.project);
@@ -1841,6 +2128,10 @@ export async function insertProjectBundle(bundle: ProjectBundle): Promise<void> 
       if (bundle.aiActions.length > 0) await db.aiActions.bulkPut(bundle.aiActions);
       if (bundle.chapterTrackerReports.length > 0) {
         await db.chapterTrackerReports.bulkPut(bundle.chapterTrackerReports);
+      }
+      if (bundle.canonDeltas?.length > 0) await db.canonDeltas.bulkPut(bundle.canonDeltas);
+      if (bundle.writingSessions?.length > 0) {
+        await db.writingSessions.bulkPut(bundle.writingSessions);
       }
     }
   );
@@ -1963,6 +2254,8 @@ export async function importProjectBundle(bundle: ProjectBundle, regenerateIds: 
     },
     snapshots: [],
     aiActions: [],
+    writingSessions: [],
+    canonDeltas: [],
     chapterTrackerReports: (cloned.chapterTrackerReports ?? []).map((report) => ({
       ...report,
       id: createId("chapter-tracker"),
@@ -2020,6 +2313,20 @@ export async function importProjectBundle(bundle: ProjectBundle, regenerateIds: 
       entry.entityType === "relationship"
         ? entityIdMap.get(`relationship:${entry.entityId}`) ?? entry.entityId
         : entityIdMap.get(`${entry.entityType}:${entry.entityId}`) ?? entry.entityId,
+    updatedAt: timestamp,
+  }));
+
+  importedBundle.canonDeltas = (cloned.canonDeltas ?? []).map((delta) => ({
+    ...delta,
+    id: createId("delta"),
+    projectId: newProjectId,
+    chapterId: delta.chapterId ? chapterIdMap.get(delta.chapterId) ?? delta.chapterId : undefined,
+    entityId:
+      delta.entityType === "chapter"
+        ? chapterIdMap.get(delta.entityId) ?? delta.entityId
+        : delta.entityType === "relationship"
+          ? entityIdMap.get(`relationship:${delta.entityId}`) ?? delta.entityId
+          : entityIdMap.get(`${delta.entityType}:${delta.entityId}`) ?? delta.entityId,
     updatedAt: timestamp,
   }));
 

@@ -68,6 +68,8 @@ function createBundle(): ProjectBundle {
     relationships: [],
     entityProgression: [],
     entityHistory: [],
+    canonDeltas: [],
+    writingSessions: [],
     chapterTrackerReports: [],
     revisionIssues: [],
     checklist: [],

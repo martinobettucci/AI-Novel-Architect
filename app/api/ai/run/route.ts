@@ -21,6 +21,7 @@ interface RunBody {
   maxTokens?: number;
   systemPrompt?: string;
   toneGuide?: string;
+  responseFormat?: "text" | "json";
 }
 
 export async function POST(req: NextRequest) {
@@ -41,7 +42,10 @@ export async function POST(req: NextRequest) {
     toneGuide: body.toneGuide,
   };
 
-  const systemPrompt = buildSystemPrompt(runReq);
+  const jsonMode = body.responseFormat === "json";
+  const systemPrompt = jsonMode
+    ? `${buildSystemPrompt(runReq)}\nReturn a single valid JSON value only. No prose, no markdown fences.`
+    : buildSystemPrompt(runReq);
   const userPrompt = buildUserPrompt(runReq);
 
   try {
@@ -54,8 +58,12 @@ export async function POST(req: NextRequest) {
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: body.temperature ?? 0.7,
+        temperature: body.temperature ?? (jsonMode ? 0.2 : 0.7),
         max_tokens: body.maxTokens ?? 2200,
+        // OpenAI-compatible JSON mode. Servers that ignore it still get the
+        // instruction in the system prompt, and the client extracts JSON
+        // tolerantly, so this degrades gracefully.
+        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
     });
 
