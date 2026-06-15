@@ -670,6 +670,32 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                             />
                           </div>
+                          <div>
+                            <label
+                              htmlFor={`scene-pov-${scene.id}`}
+                              className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-700"
+                            >
+                              {t("drafting.scenePov")}
+                            </label>
+                            <select
+                              id={`scene-pov-${scene.id}`}
+                              value={scene.povCharacterId ?? ""}
+                              onChange={(event) =>
+                                void saveScene({
+                                  ...scene,
+                                  povCharacterId: event.target.value || undefined,
+                                })
+                              }
+                              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                            >
+                              <option value="">{t("drafting.scenePovNone")}</option>
+                              {activeProject.characters.map((character) => (
+                                <option key={character.id} value={character.id}>
+                                  {character.name || t("pov.unnamed")}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                         <div className="mb-2">
                           <div className="mb-1 flex items-center justify-between gap-2">

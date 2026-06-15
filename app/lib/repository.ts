@@ -690,6 +690,7 @@ export async function addScene(projectId: string, chapterId: string): Promise<Sc
     description: "",
     location: "",
     characters: [],
+    povCharacterId: undefined,
     notes: "",
     draftText: "",
     createdAt: timestamp,
@@ -1892,6 +1893,59 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
       message: "Project has no timeline events.",
     });
   }
+
+  conflicts.push(...detectPovIssues(bundle));
+
+  return conflicts;
+}
+
+/**
+ * Structural point-of-view checks. The semantic "narration reveals what the
+ * focal character cannot perceive" is handled by the AI POV auditor; these are
+ * the deterministic gaps the data model can prove on its own.
+ */
+export function detectPovIssues(bundle: ProjectBundle): ContinuityConflict[] {
+  const conflicts: ContinuityConflict[] = [];
+  const characterName = new Map(bundle.characters.map((item) => [item.id, item.name]));
+
+  bundle.scenes.forEach((scene) => {
+    const sceneTitle = scene.title.trim() || `scene ${scene.order}`;
+
+    if (!scene.povCharacterId) {
+      if (scene.characters.length > 0) {
+        conflicts.push({
+          id: createId("conflict"),
+          type: "character",
+          chapterId: scene.chapterId,
+          message: `Scene "${sceneTitle}" has characters but no point-of-view character assigned.`,
+        });
+      }
+      return;
+    }
+
+    const povName = characterName.get(scene.povCharacterId);
+    if (!povName) {
+      conflicts.push({
+        id: createId("conflict"),
+        type: "character",
+        chapterId: scene.chapterId,
+        message: `Scene "${sceneTitle}" points of view a character that no longer exists.`,
+      });
+      return;
+    }
+
+    const present = scene.characters.some(
+      (name) => name.trim().toLocaleLowerCase() === povName.trim().toLocaleLowerCase()
+    );
+    if (scene.characters.length > 0 && !present) {
+      conflicts.push({
+        id: createId("conflict"),
+        type: "character",
+        chapterId: scene.chapterId,
+        message: `Scene "${sceneTitle}" is told from "${povName}", who is not listed among the scene's characters.`,
+      });
+    }
+  });
 
   return conflicts;
 }

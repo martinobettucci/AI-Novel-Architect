@@ -156,6 +156,8 @@ export interface Scene {
   description: string;
   location: string;
   characters: string[];
+  /** Id of the focal/POV character for this scene, if assigned. */
+  povCharacterId?: string;
   notes: string;
   draftText: string;
   createdAt: string;

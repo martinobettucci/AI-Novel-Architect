@@ -149,6 +149,8 @@ const fr = {
   "drafting.sceneCards": "Cartes de scènes",
   "drafting.specializedAssistants": "Assistants spécialisés",
   "drafting.annotations": "Annotations",
+  "drafting.scenePov": "Point de vue (POV)",
+  "drafting.scenePovNone": "— Aucun POV —",
 
   "delta.intro": "Propositions de changement structurées et étayées. Le canon ne change que lorsque vous validez. Validées : {validated} · Rejetées : {rejected}.",
   "delta.none": "Aucune proposition en attente. Lancez l'analyse pour détecter les changements de canon introduits par ce chapitre, chacun avec preuve citée et verdict du vérificateur.",
@@ -328,6 +330,8 @@ const en: Record<MessageKey, string> = {
   "drafting.sceneCards": "Scene cards",
   "drafting.specializedAssistants": "Specialized assistants",
   "drafting.annotations": "Annotations",
+  "drafting.scenePov": "Point of view (POV)",
+  "drafting.scenePovNone": "— No POV —",
 
   "delta.intro": "Structured, evidence-backed change proposals. Canon only mutates when you validate one. Validated: {validated} · Rejected: {rejected}.",
   "delta.none": "No pending proposals. Run the analysis to detect canon changes introduced by this chapter, each with cited evidence and a verifier verdict.",

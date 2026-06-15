@@ -211,3 +211,52 @@ describe("knowledge timeline (POV)", () => {
     expect(beliefDivergences(after!, "char-x")).toHaveLength(1);
   });
 });
+
+describe("POV issue detection", () => {
+  beforeEach(async () => {
+    await resetDatabase();
+  });
+
+  it("flags a scene whose POV character is not present in the scene", async () => {
+    const { detectPovIssues, saveCharacterProfile, addScene, saveScene } = await import(
+      "@/app/lib/repository"
+    );
+    const bundle = await freshProject();
+    const projectId = bundle.project.id;
+    const chapterId = bundle.chapters[0].id;
+
+    await saveCharacterProfile({
+      id: "char-pov",
+      projectId,
+      name: "Mara",
+      role: "",
+      motivation: "",
+      arc: "",
+      voice: "",
+      relationships: "",
+      notes: "",
+      updatedAt: new Date().toISOString(),
+    });
+    const scene = await addScene(projectId, chapterId);
+    await saveScene({
+      ...scene,
+      characters: ["Someone Else"],
+      povCharacterId: "char-pov",
+    });
+
+    const after = await getProjectBundle(projectId);
+    const issues = detectPovIssues(after!);
+    expect(issues.some((i) => i.message.includes("Mara"))).toBe(true);
+  });
+
+  it("flags a scene with characters but no assigned POV", async () => {
+    const { detectPovIssues, addScene, saveScene } = await import("@/app/lib/repository");
+    const bundle = await freshProject();
+    const scene = await addScene(bundle.project.id, bundle.chapters[0].id);
+    await saveScene({ ...scene, characters: ["Anyone"] });
+
+    const after = await getProjectBundle(bundle.project.id);
+    const issues = detectPovIssues(after!);
+    expect(issues.some((i) => i.message.includes("no point-of-view"))).toBe(true);
+  });
+});
