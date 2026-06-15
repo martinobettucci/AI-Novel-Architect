@@ -62,7 +62,7 @@ describe("CanonDeltaPanel", () => {
     expect(screen.getByText("Nadia")).toBeInTheDocument();
     expect(screen.getByText(/Nadia knew the code/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /Validate/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Valider/i }));
     expect(approveDelta).toHaveBeenCalledWith("d1");
   });
 
@@ -77,6 +77,6 @@ describe("CanonDeltaPanel", () => {
     });
 
     render(<CanonDeltaPanel ctx={makeCtx({ selectedChapterDeltas: [delta] })} />);
-    expect(screen.getByRole("button", { name: /Validate/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Valider/i })).toBeDisabled();
   });
 });

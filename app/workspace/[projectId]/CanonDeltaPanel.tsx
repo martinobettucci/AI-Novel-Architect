@@ -2,14 +2,15 @@
 
 import type { CanonDelta, DetectionStrength, VerifierVerdict } from "@/app/domain/models";
 import { useI18n } from "@/app/i18n/I18nProvider";
+import type { MessageKey } from "@/app/i18n/messages";
 import type { WorkspaceController } from "./useWorkspaceController";
 
-const CONFIDENCE_LABEL: Record<DetectionStrength, string> = {
-  explicit: "Explicit",
-  strong_inference: "Strong inference",
-  weak_inference: "Weak inference",
-  conflict: "Conflict",
-  insufficient_evidence: "Insufficient evidence",
+const CONFIDENCE_KEY: Record<DetectionStrength, MessageKey> = {
+  explicit: "conf.explicit",
+  strong_inference: "conf.strong_inference",
+  weak_inference: "conf.weak_inference",
+  conflict: "conf.conflict",
+  insufficient_evidence: "conf.insufficient_evidence",
 };
 
 function verdictClass(verdict: VerifierVerdict): string {
@@ -25,6 +26,7 @@ function DeltaCard({
   delta: CanonDelta;
   ctx: WorkspaceController;
 }) {
+  const { t } = useI18n();
   const blockedFromApproval = delta.verifierVerdict === "rejected";
 
   return (
@@ -32,7 +34,7 @@ function DeltaCard({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-900">
-            {delta.entityLabel || "(unnamed)"}{" "}
+            {delta.entityLabel || t("delta.unnamed")}{" "}
             <span className="text-xs font-normal text-slate-500">
               · {delta.entityType.replace(/_/g, " ")} · {delta.layer}
             </span>
@@ -40,7 +42,7 @@ function DeltaCard({
         </div>
         <div className="flex flex-wrap items-center gap-1">
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-            {CONFIDENCE_LABEL[delta.confidence]}
+            {t(CONFIDENCE_KEY[delta.confidence])}
           </span>
           <span
             className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${verdictClass(
@@ -48,7 +50,7 @@ function DeltaCard({
             )}`}
             title={delta.verifierReason}
           >
-            verifier: {delta.verifierVerdict}
+            {t("delta.verifier", { verdict: delta.verifierVerdict })}
           </span>
         </div>
       </div>
@@ -67,7 +69,7 @@ function DeltaCard({
       {delta.evidence.length > 0 && (
         <div className="mt-2 space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Evidence
+            {t("delta.evidence")}
           </p>
           {delta.evidence.map((span, index) => (
             <blockquote
@@ -84,26 +86,22 @@ function DeltaCard({
         <button
           onClick={() => void ctx.approveDelta(delta.id)}
           disabled={blockedFromApproval}
-          title={
-            blockedFromApproval
-              ? "The verifier could not find this change's evidence in the chapter. Edit the evidence or reject."
-              : "Validate this delta and apply it to canon."
-          }
+          title={blockedFromApproval ? t("delta.blockedTitle") : t("delta.validateTitle")}
           className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
         >
-          Validate → canon
+          {t("delta.validate")}
         </button>
         <button
           onClick={() => void ctx.rejectDelta(delta.id)}
           className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
         >
-          Reject
+          {t("delta.reject")}
         </button>
         <button
           onClick={() => void ctx.deleteDelta(delta.id)}
           className="rounded border border-rose-300 px-3 py-1.5 text-xs text-rose-700"
         >
-          Delete
+          {t("delta.delete")}
         </button>
         {blockedFromApproval && (
           <span className="text-[11px] text-rose-700">{delta.verifierReason}</span>
@@ -137,8 +135,7 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
         <div>
           <h3 className="text-lg font-semibold text-slate-900">{t("drafting.canonDeltas")}</h3>
           <p className="text-sm text-slate-600">
-            Structured, evidence-backed change proposals. Canon only mutates when you validate
-            one. Validated: {validated} · Rejected: {rejected}.
+            {t("delta.intro", { validated, rejected })}
           </p>
         </div>
         <button
@@ -182,10 +179,7 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
           ))}
         </div>
       ) : (
-        <p className="mt-3 text-sm text-slate-600">
-          No pending proposals. Run the analysis to detect canon changes introduced by this
-          chapter, each with cited evidence and a verifier verdict.
-        </p>
+        <p className="mt-3 text-sm text-slate-600">{t("delta.none")}</p>
       )}
     </div>
   );
