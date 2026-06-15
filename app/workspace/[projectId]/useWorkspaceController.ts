@@ -1,9 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
+import { useEffect, useMemo, useState } from "react";
 import type {
   AiActionType,
   Chapter,
@@ -95,6 +92,8 @@ import {
   sceneLabel,
   type WorkspaceTab,
 } from "./helpers";
+import { useEditorBinding } from "./useEditorBinding";
+import { useOnlineStatus } from "./useOnlineStatus";
 
 export function useWorkspaceController(projectId: string) {
   const { t } = useI18n();
@@ -216,26 +215,12 @@ export function useWorkspaceController(projectId: string) {
     sceneId: string;
     text: string;
   } | null>(null);
-  const [offline, setOffline] = useState(
-    typeof navigator !== "undefined" ? !navigator.onLine : false
-  );
+  const offline = useOnlineStatus();
 
   useEffect(() => {
     void openProject(projectId);
     void loadSettings(projectId);
   }, [loadSettings, openProject, projectId]);
-
-  useEffect(() => {
-    const onOnline = () => setOffline(false);
-    const onOffline = () => setOffline(true);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
 
   const project = activeProject?.project;
   const projectIdValue = project?.id ?? "";
@@ -488,105 +473,13 @@ export function useWorkspaceController(projectId: string) {
     return buildGrammarSuggestions(selectedChapter.content);
   }, [selectedChapter]);
 
-  // The editor save flow is ref-based: TipTap's onUpdate closure is created
-  // once, so reading selectedChapter directly would save typed content into
-  // whichever chapter was selected when the editor mounted.
-  const selectedChapterRef = useRef<Chapter | null>(null);
-  selectedChapterRef.current = selectedChapter;
-  const editorChapterIdRef = useRef<string | null>(null);
-  const pendingEditorSaveRef = useRef<{ chapter: Chapter; content: string } | null>(null);
-  const editorSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flushPendingEditorSave = useCallback(() => {
-    if (editorSaveTimerRef.current) {
-      clearTimeout(editorSaveTimerRef.current);
-      editorSaveTimerRef.current = null;
-    }
-    const pending = pendingEditorSaveRef.current;
-    pendingEditorSaveRef.current = null;
-    if (pending) {
-      void saveChapter({ ...pending.chapter, content: pending.content });
-    }
-  }, [saveChapter]);
-
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit,
-      Placeholder.configure({
-        placeholder:
-          "Start writing. AI actions always apply through preview mode in this workspace.",
-      }),
-    ],
-    content: selectedChapter?.content ?? "",
-    editable: !readingMode,
-    onUpdate: ({ editor: instance }) => {
-      const chapter = selectedChapterRef.current;
-      if (!chapter || !instance.isEditable) return;
-      pendingEditorSaveRef.current = { chapter, content: instance.getHTML() };
-      if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
-      editorSaveTimerRef.current = setTimeout(flushPendingEditorSave, 500);
-    },
+  const { editor, setEditorContent, flushPendingEditorSave } = useEditorBinding({
+    selectedChapter,
+    readingMode,
+    saveChapter,
+    setOutlineSearchVisible,
+    setFocusMode,
   });
-
-  const setEditorContent = useCallback(
-    (content: string) => {
-      if (!editor) return;
-      editor.commands.setContent(content || "", { emitUpdate: false });
-    },
-    [editor]
-  );
-
-  useEffect(() => {
-    if (!editor || !selectedChapter) return;
-    if (editorChapterIdRef.current !== selectedChapter.id) {
-      // Save any pending edits of the previous chapter before loading the new
-      // one, so fast chapter switches never mix contents.
-      flushPendingEditorSave();
-      editorChapterIdRef.current = selectedChapter.id;
-      setEditorContent(selectedChapter.content);
-    } else if (
-      !pendingEditorSaveRef.current &&
-      editor.getHTML() !== selectedChapter.content &&
-      !editor.isFocused
-    ) {
-      // External content change (AI apply, snapshot restore, search/replace).
-      setEditorContent(selectedChapter.content);
-    }
-    editor.setEditable(!readingMode);
-  }, [editor, flushPendingEditorSave, readingMode, selectedChapter, setEditorContent]);
-
-  // Persist any pending edit when the workspace unmounts.
-  useEffect(() => flushPendingEditorSave, [flushPendingEditorSave]);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      const command = event.metaKey || event.ctrlKey;
-      const chapter = selectedChapterRef.current;
-      if (!command || !chapter) return;
-
-      if (event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        if (!editor) return;
-        pendingEditorSaveRef.current = null;
-        if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
-        void saveChapter({ ...chapter, content: editor.getHTML() });
-      }
-
-      if (event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        setOutlineSearchVisible(true);
-      }
-
-      if (event.shiftKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        setFocusMode((current) => !current);
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editor, saveChapter]);
   async function applySearchReplace() {
     if (!searchText.trim()) return;
     const bundle = activeProject;
