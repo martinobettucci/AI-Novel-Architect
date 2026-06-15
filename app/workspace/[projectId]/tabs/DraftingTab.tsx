@@ -5,7 +5,7 @@ import type { AiActionType } from "@/app/domain/models";
 import { createId } from "@/app/domain/defaults";
 import { ASSISTANTS } from "@/app/lib/ai/assistants";
 import { listChapterTrackerTypes } from "@/app/lib/ai/chapterTrackers";
-import { chapterLabel, chapterTrackerLabel, historyEntityTypeLabel, plainTextWordCount, SCENE_FIELD_HELP } from "../helpers";
+import { chapterLabel, chapterTrackerLabel, historyEntityTypeLabel, plainTextWordCount } from "../helpers";
 import type { WorkspaceController } from "../useWorkspaceController";
 import { SelectedChapterDetailsCard } from "../SelectedChapterDetailsCard";
 import { CanonDeltaPanel } from "../CanonDeltaPanel";
@@ -553,12 +553,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               <label
                                 htmlFor={`scene-title-${scene.id}`}
                                 className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.title}
+                                title={t("scene.helpTitle")}
                               >
-                                Title
+                                {t("scene.title")}
                               </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.title}>
-                                Hover for help
+                              <span className="text-[11px] text-slate-500" title={t("scene.helpTitle")}>
+                                {t("scene.hoverHelp")}
                               </span>
                             </div>
                             <input
@@ -570,7 +570,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                   title: event.target.value,
                                 })
                               }
-                              placeholder={`Scene ${scene.order} title`}
+                              placeholder={t("scene.phTitle", { order: scene.order })}
                               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                             />
                           </div>
@@ -586,12 +586,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             <label
                               htmlFor={`scene-description-${scene.id}`}
                               className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.description}
+                              title={t("scene.helpDescription")}
                             >
-                              Description
+                              {t("scene.description")}
                             </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.description}>
-                              Purpose and outcome
+                            <span className="text-[11px] text-slate-500" title={t("scene.helpDescription")}>
+                              {t("scene.purposeOutcome")}
                             </span>
                           </div>
                           <textarea
@@ -604,7 +604,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                 description: event.target.value,
                               })
                             }
-                            placeholder="Summarize the scene beat, conflict, and ending state"
+                            placeholder={t("scene.phDescription")}
                             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                           />
                         </div>
@@ -614,12 +614,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               <label
                                 htmlFor={`scene-location-${scene.id}`}
                                 className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.location}
+                                title={t("scene.helpLocation")}
                               >
-                                Location
+                                {t("scene.location")}
                               </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.location}>
-                                Setting
+                              <span className="text-[11px] text-slate-500" title={t("scene.helpLocation")}>
+                                {t("scene.setting")}
                               </span>
                             </div>
                             <input
@@ -631,7 +631,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                   location: event.target.value,
                                 })
                               }
-                              placeholder="Scene location"
+                              placeholder={t("scene.phLocation")}
                               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                             />
                           </div>
@@ -640,12 +640,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               <label
                                 htmlFor={`scene-characters-${scene.id}`}
                                 className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                                title={SCENE_FIELD_HELP.characters}
+                                title={t("scene.helpCharacters")}
                               >
-                                Characters
+                                {t("scene.characters")}
                               </label>
-                              <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.characters}>
-                                Comma separated
+                              <span className="text-[11px] text-slate-500" title={t("scene.helpCharacters")}>
+                                {t("scene.commaSeparated")}
                               </span>
                             </div>
                             <input
@@ -660,7 +660,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                     .filter(Boolean),
                                 })
                               }
-                              placeholder="Characters, comma separated"
+                              placeholder={t("scene.phCharacters")}
                               className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                             />
                           </div>
@@ -696,12 +696,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             <label
                               htmlFor={`scene-notes-${scene.id}`}
                               className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.notes}
+                              title={t("scene.helpNotes")}
                             >
-                              Notes
+                              {t("scene.notes")}
                             </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.notes}>
-                              Continuity anchors
+                            <span className="text-[11px] text-slate-500" title={t("scene.helpNotes")}>
+                              {t("scene.continuityAnchors")}
                             </span>
                           </div>
                           <textarea
@@ -714,7 +714,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                 notes: event.target.value,
                               })
                             }
-                            placeholder="Scene notes and continuity anchors"
+                            placeholder={t("scene.phNotes")}
                             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                           />
                         </div>
@@ -723,12 +723,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             <label
                               htmlFor={`scene-draft-${scene.id}`}
                               className="text-xs font-semibold uppercase tracking-wide text-slate-700"
-                              title={SCENE_FIELD_HELP.draftText}
+                              title={t("scene.helpDraft")}
                             >
-                              Draft seed
+                              {t("scene.draftSeed")}
                             </label>
-                            <span className="text-[11px] text-slate-500" title={SCENE_FIELD_HELP.draftText}>
-                              Beat outline
+                            <span className="text-[11px] text-slate-500" title={t("scene.helpDraft")}>
+                              {t("scene.beatOutline")}
                             </span>
                           </div>
                           <textarea
@@ -741,7 +741,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                 draftText: event.target.value,
                               })
                             }
-                            placeholder="Scene draft notes"
+                            placeholder={t("scene.phDraft")}
                             className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                           />
                         </div>
