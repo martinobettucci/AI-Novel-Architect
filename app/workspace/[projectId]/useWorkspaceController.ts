@@ -1,0 +1,1761 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import type {
+  AiActionType,
+  Chapter,
+  ChapterTrackerReport,
+  EntityHistoryEntry,
+  EntityProgression,
+  NarrativeRelationship,
+  Scene,
+  TrackedEntityType,
+} from "@/app/domain/models";
+import {
+  createEntityProgression,
+  createId,
+  createLocationProfile,
+  createLoreEntry,
+  createNarrativeRelationship,
+} from "@/app/domain/defaults";
+import { useI18n } from "@/app/i18n/I18nProvider";
+import {
+  ASSISTANTS,
+  buildAssistantInput,
+  type AssistantId,
+} from "@/app/lib/ai/assistants";
+import {
+  buildChapterTrackerComputationContext,
+  buildChapterTrackerComputationInput,
+  listChapterTrackerTypes,
+  parseChapterTrackerComputation,
+} from "@/app/lib/ai/chapterTrackers";
+import {
+  buildChapterDetailsAutocompleteContext,
+  buildChapterDetailsAutocompleteInput,
+  parseChapterDetailsSuggestion,
+} from "@/app/lib/ai/chapterDetails";
+import {
+  buildChapterDraftContext,
+  buildChapterDraftInput,
+} from "@/app/lib/ai/chapterDraft";
+import {
+  buildSceneCardSuggestionContext,
+  buildSceneCardSuggestionInput,
+  buildSceneDraftContext,
+  buildSceneDraftInput,
+  parseSceneCardSuggestions,
+} from "@/app/lib/ai/sceneCards";
+import {
+  buildStoryBibleSuggestionContext,
+  buildStoryBibleSuggestionInput,
+  parseStoryBibleSuggestion,
+} from "@/app/lib/ai/storyBible";
+import {
+  buildStoryWorldSuggestionContext,
+  buildStoryWorldSuggestionInput,
+  parseStoryWorldSuggestion,
+  type StoryWorldSuggestion,
+} from "@/app/lib/ai/storyBibleFollowup";
+import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
+import type { DiffChunk } from "@/app/lib/ai/diff";
+import {
+  buildGrammarSuggestions,
+  buildMarketingArtifacts,
+  buildPublishingArtifacts,
+  chapterTrackerReportsForChapter,
+  computeChapterQualityScore,
+  computeContinuityConflicts,
+  entityHistoryForChapter,
+  entityHistoryForEntity,
+  logAiAction,
+  progressionForEntity,
+} from "@/app/lib/repository";
+import { useProjectStore } from "@/app/stores/projectStore";
+import { useSettingsStore } from "@/app/stores/settingsStore";
+import {
+  chapterLabel,
+  downloadArtifacts,
+  escapeHtml,
+  normalizeLookupKey,
+  plainTextToHtml,
+  sceneLabel,
+  type WorkspaceTab,
+} from "./helpers";
+
+export function useWorkspaceController(projectId: string) {
+  const { t } = useI18n();
+
+  const activeProject = useProjectStore((state) => state.activeProject);
+  const storeError = useProjectStore((state) => state.error);
+  const openProject = useProjectStore((state) => state.openProject);
+  const saveProjectMeta = useProjectStore((state) => state.saveProjectMeta);
+  const saveStoryBible = useProjectStore((state) => state.saveStoryBible);
+  const saveChapter = useProjectStore((state) => state.saveChapter);
+  const saveChapterTrackerReport = useProjectStore((state) => state.saveChapterTrackerReport);
+  const addChapter = useProjectStore((state) => state.addChapter);
+  const deleteChapter = useProjectStore((state) => state.deleteChapter);
+  const reorderChapter = useProjectStore((state) => state.reorderChapter);
+  const saveScene = useProjectStore((state) => state.saveScene);
+  const addScene = useProjectStore((state) => state.addScene);
+  const deleteScene = useProjectStore((state) => state.deleteScene);
+  const reorderScene = useProjectStore((state) => state.reorderScene);
+  const saveCharacter = useProjectStore((state) => state.saveCharacter);
+  const deleteCharacter = useProjectStore((state) => state.deleteCharacter);
+  const saveLocation = useProjectStore((state) => state.saveLocation);
+  const deleteLocation = useProjectStore((state) => state.deleteLocation);
+  const saveLoreEntry = useProjectStore((state) => state.saveLoreEntry);
+  const deleteLoreEntry = useProjectStore((state) => state.deleteLoreEntry);
+  const saveTimelineEventAction = useProjectStore((state) => state.saveTimelineEvent);
+  const deleteTimelineEventAction = useProjectStore((state) => state.deleteTimelineEvent);
+  const saveRelationship = useProjectStore((state) => state.saveRelationship);
+  const deleteRelationship = useProjectStore((state) => state.deleteRelationship);
+  const saveEntityProgressionAction = useProjectStore((state) => state.saveEntityProgression);
+  const deleteEntityProgression = useProjectStore((state) => state.deleteEntityProgression);
+  const replaceEntityHistoryForChapterAction = useProjectStore(
+    (state) => state.replaceEntityHistoryForChapter
+  );
+  const createRevisionIssue = useProjectStore((state) => state.createRevisionIssue);
+  const updateRevisionIssueStatus = useProjectStore((state) => state.updateRevisionIssueStatus);
+  const deleteRevisionIssue = useProjectStore((state) => state.deleteRevisionIssue);
+  const saveChecklistItem = useProjectStore((state) => state.saveChecklistItem);
+  const toggleChecklistItem = useProjectStore((state) => state.toggleChecklistItem);
+  const deleteChecklistItem = useProjectStore((state) => state.deleteChecklistItem);
+  const saveAnnotation = useProjectStore((state) => state.saveAnnotation);
+  const deleteAnnotation = useProjectStore((state) => state.deleteAnnotation);
+  const saveGoal = useProjectStore((state) => state.saveGoal);
+  const createSnapshot = useProjectStore((state) => state.createSnapshot);
+  const restoreSnapshot = useProjectStore((state) => state.restoreSnapshot);
+  const exportActiveProjectJson = useProjectStore((state) => state.exportActiveProjectJson);
+  const exportActiveProjectMarkdown = useProjectStore((state) => state.exportActiveProjectMarkdown);
+  const exportActiveProjectBackup = useProjectStore((state) => state.exportActiveProjectBackup);
+
+  const resolved = useSettingsStore((state) => state.resolved);
+  const loadSettings = useSettingsStore((state) => state.load);
+  const saveScope = useSettingsStore((state) => state.saveScope);
+  const resetScope = useSettingsStore((state) => state.resetScope);
+
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("plan");
+  const [selectedChapterId, setSelectedChapterId] = useState<string>("");
+  const [focusMode, setFocusMode] = useState(false);
+  const [readingMode, setReadingMode] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [aiAction, setAiAction] = useState<AiActionType>("revision_pass");
+  const [selectedAssistantId, setSelectedAssistantId] =
+    useState<AssistantId>("development_editor");
+  const [aiStatus, setAiStatus] = useState<"idle" | "running" | "error">("idle");
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiDraft, setAiDraft] = useState<string>("");
+  const [aiDiff, setAiDiff] = useState<DiffChunk[]>([]);
+  const [aiPromptContext, setAiPromptContext] = useState("");
+  const [outlineSearchVisible, setOutlineSearchVisible] = useState(false);
+  const [storyBibleAiStatus, setStoryBibleAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [storyBibleAiError, setStoryBibleAiError] = useState<string | null>(null);
+  const [storyBibleAiMessage, setStoryBibleAiMessage] = useState<string | null>(null);
+  const [storyWorldAiStatus, setStoryWorldAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [storyWorldAiError, setStoryWorldAiError] = useState<string | null>(null);
+  const [storyWorldAiMessage, setStoryWorldAiMessage] = useState<string | null>(null);
+  const [chapterDetailsAiStatus, setChapterDetailsAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [chapterDetailsAiError, setChapterDetailsAiError] = useState<string | null>(null);
+  const [chapterDetailsAiMessage, setChapterDetailsAiMessage] = useState<string | null>(null);
+  const [chapterTrackersAiStatus, setChapterTrackersAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [chapterTrackersAiError, setChapterTrackersAiError] = useState<string | null>(null);
+  const [chapterTrackersAiMessage, setChapterTrackersAiMessage] = useState<string | null>(null);
+  const [chapterDraftAiStatus, setChapterDraftAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [chapterDraftAiError, setChapterDraftAiError] = useState<string | null>(null);
+  const [chapterDraftAiMessage, setChapterDraftAiMessage] = useState<string | null>(null);
+  const [chapterDraftPreview, setChapterDraftPreview] = useState<string>("");
+  const [selectedHistoryEntityKey, setSelectedHistoryEntityKey] = useState<string>("");
+  const [sceneCardsAiStatus, setSceneCardsAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [sceneCardsAiError, setSceneCardsAiError] = useState<string | null>(null);
+  const [sceneCardsAiMessage, setSceneCardsAiMessage] = useState<string | null>(null);
+  const [sceneDraftAiSceneId, setSceneDraftAiSceneId] = useState<string | null>(null);
+  const [sceneDraftAiError, setSceneDraftAiError] = useState<string | null>(null);
+  const [sceneDraftAiMessage, setSceneDraftAiMessage] = useState<string | null>(null);
+  const [searchReplaceMessage, setSearchReplaceMessage] = useState<string | null>(null);
+  const [storyBiblePreview, setStoryBiblePreview] = useState<ReturnType<
+    typeof parseStoryBibleSuggestion
+  > | null>(null);
+  const [storyWorldPreview, setStoryWorldPreview] = useState<StoryWorldSuggestion | null>(null);
+  const [chapterDetailsPreview, setChapterDetailsPreview] = useState<ReturnType<
+    typeof parseChapterDetailsSuggestion
+  > | null>(null);
+  const [sceneCardsPreview, setSceneCardsPreview] = useState<ReturnType<
+    typeof parseSceneCardSuggestions
+  > | null>(null);
+  const [sceneDraftPreview, setSceneDraftPreview] = useState<{
+    sceneId: string;
+    text: string;
+  } | null>(null);
+  const [offline, setOffline] = useState(
+    typeof navigator !== "undefined" ? !navigator.onLine : false
+  );
+
+  useEffect(() => {
+    void openProject(projectId);
+    void loadSettings(projectId);
+  }, [loadSettings, openProject, projectId]);
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  const project = activeProject?.project;
+  const projectIdValue = project?.id ?? "";
+
+  const selectedChapter = useMemo(
+    () =>
+      activeProject?.chapters.find((chapter) => chapter.id === selectedChapterId) ??
+      activeProject?.chapters[0] ??
+      null,
+    [activeProject, selectedChapterId]
+  );
+
+  useEffect(() => {
+    if (!activeProject) return;
+
+    const chapterIds = new Set(activeProject.chapters.map((chapter) => chapter.id));
+    if (selectedChapterId && chapterIds.has(selectedChapterId)) {
+      return;
+    }
+
+    setSelectedChapterId(activeProject.chapters[0]?.id ?? "");
+  }, [activeProject, selectedChapterId]);
+
+  useEffect(() => {
+    // Chapter-scoped AI previews must never survive a chapter switch, or a
+    // proposal computed for one chapter could be applied to another.
+    setChapterDraftPreview("");
+    setChapterDraftAiError(null);
+    setChapterDraftAiMessage(null);
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiError(null);
+    setChapterDetailsAiMessage(null);
+    setSceneCardsPreview(null);
+    setSceneCardsAiError(null);
+    setSceneCardsAiMessage(null);
+    setSceneDraftPreview(null);
+    setSceneDraftAiError(null);
+    setSceneDraftAiMessage(null);
+  }, [selectedChapter?.id]);
+
+  const selectedScenes = useMemo(() => {
+    if (!activeProject || !selectedChapter) return [];
+    return activeProject.scenes
+      .filter((scene) => scene.chapterId === selectedChapter.id)
+      .sort((a, b) => a.order - b.order);
+  }, [activeProject, selectedChapter]);
+
+  const selectedChapterTrackerReports = useMemo(() => {
+    if (!activeProject || !selectedChapter) {
+      return [] as ChapterTrackerReport[];
+    }
+    return chapterTrackerReportsForChapter(activeProject, selectedChapter.id);
+  }, [activeProject, selectedChapter]);
+
+  const selectedChapterEntityHistory = useMemo(() => {
+    if (!activeProject || !selectedChapter) {
+      return [] as EntityHistoryEntry[];
+    }
+    return entityHistoryForChapter(activeProject, selectedChapter.id);
+  }, [activeProject, selectedChapter]);
+
+  const continuityConflicts = useMemo(() => {
+    if (!activeProject) return [];
+    return computeContinuityConflicts(activeProject);
+  }, [activeProject]);
+
+  const publishArtifacts = useMemo(() => {
+    if (!activeProject) return null;
+    return buildPublishingArtifacts(activeProject);
+  }, [activeProject]);
+
+  const marketingArtifacts = useMemo(() => {
+    if (!activeProject) return null;
+    return buildMarketingArtifacts(activeProject);
+  }, [activeProject]);
+
+  const selectedAssistant =
+    ASSISTANTS.find((assistant) => assistant.id === selectedAssistantId) ?? ASSISTANTS[0];
+
+  const trackedEntityOptions = useMemo(() => {
+    if (!activeProject) return [];
+    return [
+      ...activeProject.characters.map((item) => ({
+        id: item.id,
+        type: "character" as const,
+        label: item.name.trim() || "Unnamed character",
+      })),
+      ...activeProject.locations.map((item) => ({
+        id: item.id,
+        type: "location" as const,
+        label: item.name.trim() || "Unnamed location",
+      })),
+      ...activeProject.loreEntries.map((item) => ({
+        id: item.id,
+        type: "lore" as const,
+        label: item.title.trim() || "Untitled lore",
+      })),
+      ...activeProject.timeline.map((item) => ({
+        id: item.id,
+        type: "timeline_event" as const,
+        label: item.label.trim() || "Untitled event",
+      })),
+    ];
+  }, [activeProject]);
+
+  const historyEntityOptions = useMemo(() => {
+    if (!activeProject) return [] as Array<{
+      key: string;
+      type: EntityHistoryEntry["entityType"];
+      entityId: string;
+      label: string;
+    }>;
+
+    const relationshipOptions = activeProject.relationships.map((relationship) => {
+      const source =
+        trackedEntityOptions.find(
+          (option) =>
+            option.type === relationship.sourceType && option.id === relationship.sourceId
+        )?.label ?? "Unknown source";
+      const target =
+        trackedEntityOptions.find(
+          (option) =>
+            option.type === relationship.targetType && option.id === relationship.targetId
+        )?.label ?? "Unknown target";
+
+      return {
+        key: `relationship:${relationship.id}`,
+        type: "relationship" as const,
+        entityId: relationship.id,
+        label: `${source} -> ${relationship.relationType || "related to"} -> ${target}`,
+      };
+    });
+
+    return [
+      ...trackedEntityOptions.map((option) => ({
+        key: `${option.type}:${option.id}`,
+        type: option.type,
+        entityId: option.id,
+        label: option.label,
+      })),
+      ...relationshipOptions,
+    ];
+  }, [activeProject, trackedEntityOptions]);
+
+  useEffect(() => {
+    if (historyEntityOptions.length === 0) {
+      if (selectedHistoryEntityKey) {
+        setSelectedHistoryEntityKey("");
+      }
+      return;
+    }
+
+    const exists = historyEntityOptions.some((item) => item.key === selectedHistoryEntityKey);
+    if (!exists) {
+      setSelectedHistoryEntityKey(historyEntityOptions[0].key);
+    }
+  }, [historyEntityOptions, selectedHistoryEntityKey]);
+
+  const selectedHistoryEntity = useMemo(
+    () =>
+      historyEntityOptions.find((item) => item.key === selectedHistoryEntityKey) ??
+      historyEntityOptions[0] ??
+      null,
+    [historyEntityOptions, selectedHistoryEntityKey]
+  );
+
+  const selectedHistoryTimeline = useMemo(() => {
+    if (!activeProject || !selectedHistoryEntity) {
+      return activeProject?.chapters.map((chapter) => ({ chapter, entries: [] as EntityHistoryEntry[] })) ?? [];
+    }
+
+    const entries = entityHistoryForEntity(
+      activeProject,
+      selectedHistoryEntity.type,
+      selectedHistoryEntity.entityId
+    );
+    const entriesByChapter = new Map<string, EntityHistoryEntry[]>();
+    entries.forEach((entry) => {
+      const list = entriesByChapter.get(entry.chapterId) ?? [];
+      list.push(entry);
+      entriesByChapter.set(entry.chapterId, list);
+    });
+
+    return activeProject.chapters
+      .slice()
+      .sort((a, b) => a.number - b.number)
+      .map((chapter) => ({
+        chapter,
+        entries: (entriesByChapter.get(chapter.id) ?? []).sort((a, b) => a.label.localeCompare(b.label)),
+      }));
+  }, [activeProject, selectedHistoryEntity]);
+
+  const progressionByEntity = useMemo(() => {
+    if (!activeProject) return [] as Array<{
+      key: string;
+      type: TrackedEntityType;
+      entityId: string;
+      label: string;
+      entries: EntityProgression[];
+    }>;
+
+    return trackedEntityOptions
+      .map((option) => ({
+        key: `${option.type}:${option.id}`,
+        type: option.type,
+        entityId: option.id,
+        label: option.label,
+        entries: progressionForEntity(activeProject, option.type, option.id),
+      }))
+      .filter((item) => item.entries.length > 0);
+  }, [activeProject, trackedEntityOptions]);
+
+  const pendingAiCount = useMemo(() => {
+    if (!activeProject) return 0;
+    return activeProject.aiActions.filter((action) => action.status === "pending").length;
+  }, [activeProject]);
+
+  const manuscriptWordCount = useMemo(() => {
+    if (!activeProject) return 0;
+    return activeProject.chapters.reduce((sum, chapter) => sum + chapter.wordCountCurrent, 0);
+  }, [activeProject]);
+
+  const chapterScore = useMemo(() => {
+    if (!selectedChapter) return 0;
+    return computeChapterQualityScore(
+      selectedChapter,
+      resolved.settings.qa.rubricWeights
+    );
+  }, [resolved.settings.qa.rubricWeights, selectedChapter]);
+
+  const chapterGrammarSuggestions = useMemo(() => {
+    if (!selectedChapter) return [];
+    return buildGrammarSuggestions(selectedChapter.content);
+  }, [selectedChapter]);
+
+  // The editor save flow is ref-based: TipTap's onUpdate closure is created
+  // once, so reading selectedChapter directly would save typed content into
+  // whichever chapter was selected when the editor mounted.
+  const selectedChapterRef = useRef<Chapter | null>(null);
+  selectedChapterRef.current = selectedChapter;
+  const editorChapterIdRef = useRef<string | null>(null);
+  const pendingEditorSaveRef = useRef<{ chapter: Chapter; content: string } | null>(null);
+  const editorSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPendingEditorSave = useCallback(() => {
+    if (editorSaveTimerRef.current) {
+      clearTimeout(editorSaveTimerRef.current);
+      editorSaveTimerRef.current = null;
+    }
+    const pending = pendingEditorSaveRef.current;
+    pendingEditorSaveRef.current = null;
+    if (pending) {
+      void saveChapter({ ...pending.chapter, content: pending.content });
+    }
+  }, [saveChapter]);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Placeholder.configure({
+        placeholder:
+          "Start writing. AI actions always apply through preview mode in this workspace.",
+      }),
+    ],
+    content: selectedChapter?.content ?? "",
+    editable: !readingMode,
+    onUpdate: ({ editor: instance }) => {
+      const chapter = selectedChapterRef.current;
+      if (!chapter || !instance.isEditable) return;
+      pendingEditorSaveRef.current = { chapter, content: instance.getHTML() };
+      if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
+      editorSaveTimerRef.current = setTimeout(flushPendingEditorSave, 500);
+    },
+  });
+
+  const setEditorContent = useCallback(
+    (content: string) => {
+      if (!editor) return;
+      editor.commands.setContent(content || "", { emitUpdate: false });
+    },
+    [editor]
+  );
+
+  useEffect(() => {
+    if (!editor || !selectedChapter) return;
+    if (editorChapterIdRef.current !== selectedChapter.id) {
+      // Save any pending edits of the previous chapter before loading the new
+      // one, so fast chapter switches never mix contents.
+      flushPendingEditorSave();
+      editorChapterIdRef.current = selectedChapter.id;
+      setEditorContent(selectedChapter.content);
+    } else if (
+      !pendingEditorSaveRef.current &&
+      editor.getHTML() !== selectedChapter.content &&
+      !editor.isFocused
+    ) {
+      // External content change (AI apply, snapshot restore, search/replace).
+      setEditorContent(selectedChapter.content);
+    }
+    editor.setEditable(!readingMode);
+  }, [editor, flushPendingEditorSave, readingMode, selectedChapter, setEditorContent]);
+
+  // Persist any pending edit when the workspace unmounts.
+  useEffect(() => flushPendingEditorSave, [flushPendingEditorSave]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const command = event.metaKey || event.ctrlKey;
+      const chapter = selectedChapterRef.current;
+      if (!command || !chapter) return;
+
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!editor) return;
+        pendingEditorSaveRef.current = null;
+        if (editorSaveTimerRef.current) clearTimeout(editorSaveTimerRef.current);
+        void saveChapter({ ...chapter, content: editor.getHTML() });
+      }
+
+      if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setOutlineSearchVisible(true);
+      }
+
+      if (event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setFocusMode((current) => !current);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editor, saveChapter]);
+  async function applySearchReplace() {
+    if (!searchText.trim()) return;
+    const bundle = activeProject;
+    if (!bundle) return;
+
+    flushPendingEditorSave();
+    let replacedCount = 0;
+    let chapterCount = 0;
+
+    for (const chapter of bundle.chapters) {
+      const source =
+        chapter.id === selectedChapter?.id && editor ? editor.getHTML() : chapter.content;
+      if (!source.includes(searchText)) continue;
+      const occurrences = source.split(searchText).length - 1;
+      const nextContent = source.split(searchText).join(replaceText);
+      await saveChapter({
+        ...chapter,
+        content: nextContent,
+      });
+      if (chapter.id === selectedChapter?.id) {
+        setEditorContent(nextContent);
+      }
+      replacedCount += occurrences;
+      chapterCount += 1;
+    }
+
+    setSearchReplaceMessage(
+      replacedCount === 0
+        ? `No match found for "${searchText}".`
+        : `Replaced ${replacedCount} occurrence${replacedCount > 1 ? "s" : ""} in ${chapterCount} chapter${chapterCount > 1 ? "s" : ""}.`
+    );
+  }
+
+  async function runAiPreview() {
+    const bundle = activeProject;
+    if (!bundle) return;
+    const needsChapterApply = selectedAssistant.focus === "chapter";
+    if (needsChapterApply && !selectedChapter) {
+      setAiError("Select a chapter before running this assistant.");
+      setAiStatus("error");
+      return;
+    }
+
+    if (needsChapterApply && selectedChapter?.aiLocked) {
+      setAiError("This chapter is locked from AI rewrite. Unlock before applying.");
+      setAiStatus("error");
+      return;
+    }
+
+    const assistantContext = buildAssistantInput(selectedAssistant, bundle, selectedChapter?.id);
+    const baseContent =
+      needsChapterApply && selectedChapter
+        ? editor?.getHTML() ?? selectedChapter.content
+        : assistantContext;
+    setAiStatus("running");
+    setAiError(null);
+
+    try {
+      const result = await runAiAction({
+        action: aiAction,
+        input: baseContent,
+        context: [assistantContext, aiPromptContext].filter(Boolean).join("\n\n"),
+        settings: resolved.settings,
+        styleProfile:
+          aiAction === "style_transform"
+            ? selectedAssistant.styleProfile ?? "Selected ghostwriter style"
+            : undefined,
+      });
+
+      if (needsChapterApply) {
+        const preview = buildPreviewApply(baseContent, result.text);
+        setAiDraft(preview.updatedText);
+        setAiDiff(preview.diff);
+      } else {
+        setAiDraft(result.text);
+        setAiDiff([]);
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter?.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: baseContent,
+        outputPreview: result.text,
+        metadata: {
+          assistant: selectedAssistant.id,
+          context: aiPromptContext,
+        },
+      });
+
+      await openProject(projectIdValue);
+      setAiStatus("idle");
+    } catch (error) {
+      setAiStatus("error");
+      setAiError(error instanceof Error ? error.message : "AI action failed");
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter?.id,
+        action: aiAction,
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: baseContent,
+        outputPreview: "",
+        metadata: {
+          assistant: selectedAssistant.id,
+          error: error instanceof Error ? error.message : "unknown",
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyAiDraft() {
+    if (!selectedChapter || !aiDraft) return;
+    flushPendingEditorSave();
+    if (selectedChapter.content.trim()) {
+      await createSnapshot(
+        `Before AI apply ${new Date().toLocaleTimeString()}`,
+        selectedChapter.id,
+        editor?.getHTML() ?? selectedChapter.content
+      );
+    }
+    setEditorContent(aiDraft);
+    await saveChapter({
+      ...selectedChapter,
+      content: aiDraft,
+    });
+    setAiDiff([]);
+    setAiDraft("");
+  }
+
+  async function appendSceneToDraft(scene: Scene) {
+    if (!selectedChapter) return;
+    flushPendingEditorSave();
+    const base = editor?.getHTML() ?? selectedChapter.content;
+    const section = `<p><strong>${escapeHtml(sceneLabel(scene))}</strong></p><p>${escapeHtml(scene.draftText || scene.description)}</p>`;
+    const next = `${base}${section}`;
+    setEditorContent(next);
+    await saveChapter({ ...selectedChapter, content: next });
+  }
+
+  async function createManualScene(chapterId: string) {
+    setSelectedChapterId(chapterId);
+    await addScene(chapterId);
+  }
+
+  async function confirmDeleteChapter(chapter: Chapter) {
+    const confirmed = window.confirm(
+      `Delete ${chapterLabel(chapter)}? Its scenes, annotations, and snapshots are removed too. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await deleteChapter(chapter.id);
+  }
+
+  async function createIssueFromGrammar(suggestion: string) {
+    if (!selectedChapter) return;
+    await createRevisionIssue({
+      chapterId: selectedChapter.id,
+      title: "Grammar/style suggestion",
+      description: suggestion,
+      severity: "medium",
+    });
+  }
+
+  function addBlankLocation() {
+    void saveLocation(createLocationProfile(projectIdValue));
+  }
+
+  function addBlankLoreEntry() {
+    void saveLoreEntry(createLoreEntry(projectIdValue));
+  }
+
+  function addBlankRelationship() {
+    void saveRelationship(createNarrativeRelationship(projectIdValue));
+  }
+
+  function addBlankProgression() {
+    const entry = createEntityProgression(projectIdValue);
+    if (selectedChapter) {
+      entry.chapterId = selectedChapter.id;
+    }
+    const fallbackEntity = trackedEntityOptions[0];
+    if (fallbackEntity) {
+      entry.entityType = fallbackEntity.type;
+      entry.entityId = fallbackEntity.id;
+      entry.label = fallbackEntity.label;
+    }
+    void saveEntityProgressionAction(entry);
+  }
+
+  function exportPublishArtifacts() {
+    if (!publishArtifacts) return;
+    downloadArtifacts(projectIdValue, {
+      metadata: publishArtifacts.metadataSheet,
+      synopsis_short: publishArtifacts.synopsisShort,
+      synopsis_long: publishArtifacts.synopsisLong,
+      chapter_manifest: publishArtifacts.chapterManifest,
+    });
+  }
+
+  function exportMarketingArtifacts() {
+    if (!marketingArtifacts) return;
+    downloadArtifacts(projectIdValue, {
+      blurb: marketingArtifacts.blurb,
+      tagline: marketingArtifacts.tagline,
+      pitch: marketingArtifacts.pitchVariants.join("\n"),
+      social: marketingArtifacts.socialSnippets.join("\n"),
+      email: marketingArtifacts.emailDraft,
+      cover: marketingArtifacts.coverBriefPrompt,
+      checklist: marketingArtifacts.launchChecklist.join("\n"),
+    });
+  }
+
+  async function suggestStoryBible() {
+    const bundle = activeProject;
+    if (!bundle) return;
+
+    const input = buildStoryBibleSuggestionInput(bundle);
+    const context = buildStoryBibleSuggestionContext();
+    setStoryBibleAiStatus("running");
+    setStoryBibleAiError(null);
+    setStoryBibleAiMessage(null);
+    setStoryBiblePreview(null);
+
+    try {
+      const result = await runAiAction({
+        action: "brainstorm",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+      const parsed = parseStoryBibleSuggestion(result.text);
+
+      if (
+        !parsed.premise &&
+        !parsed.themes?.length &&
+        !parsed.stakes &&
+        !parsed.worldRules
+      ) {
+        throw new Error("AI response could not be mapped to the Story Bible fields.");
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "story_bible_suggestion",
+        },
+      });
+
+      setStoryBiblePreview(parsed);
+      setStoryBibleAiStatus("idle");
+      setStoryBibleAiMessage(
+        "Suggestion ready. Review the proposed fields below, then apply or discard."
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Story bible suggestion failed";
+      setStoryBibleAiStatus("error");
+      setStoryBibleAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "story_bible_suggestion",
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyStoryBibleSuggestion() {
+    const bundle = activeProject;
+    if (!bundle || !storyBiblePreview) return;
+
+    await saveStoryBible({
+      ...bundle.bible,
+      premise: storyBiblePreview.premise ?? bundle.bible.premise,
+      themes: storyBiblePreview.themes ?? bundle.bible.themes,
+      stakes: storyBiblePreview.stakes ?? bundle.bible.stakes,
+      worldRules: storyBiblePreview.worldRules ?? bundle.bible.worldRules,
+    });
+
+    setStoryBiblePreview(null);
+    setStoryBibleAiMessage("Suggestion applied to the story bible fields.");
+  }
+
+  function discardStoryBibleSuggestion() {
+    setStoryBiblePreview(null);
+    setStoryBibleAiMessage("Suggestion discarded. The story bible was not changed.");
+  }
+
+  async function suggestStoryWorldScaffold() {
+    const bundle = activeProject;
+    if (!bundle) return;
+
+    const input = buildStoryWorldSuggestionInput(bundle);
+    const context = buildStoryWorldSuggestionContext();
+    setStoryWorldAiStatus("running");
+    setStoryWorldAiError(null);
+    setStoryWorldAiMessage(null);
+    setStoryWorldPreview(null);
+
+    try {
+      const result = await runAiAction({
+        action: "brainstorm",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+      const parsed = parseStoryWorldSuggestion(result.text);
+
+      if (
+        parsed.characters.length === 0 &&
+        parsed.locations.length === 0 &&
+        parsed.lore.length === 0 &&
+        parsed.timeline.length === 0 &&
+        parsed.relationships.length === 0
+      ) {
+        throw new Error("AI response could not be mapped to story bible entities.");
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "story_world_scaffold",
+          characters: parsed.characters.length,
+          locations: parsed.locations.length,
+          lore: parsed.lore.length,
+          timeline: parsed.timeline.length,
+          relationships: parsed.relationships.length,
+        },
+      });
+
+      setStoryWorldPreview(parsed);
+      setStoryWorldAiStatus("idle");
+      setStoryWorldAiMessage(
+        "World scaffold ready. Review the proposed entities below, then apply or discard."
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Story world suggestion failed";
+      setStoryWorldAiStatus("error");
+      setStoryWorldAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "story_world_scaffold",
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyStoryWorldSuggestion() {
+    const bundle = activeProject;
+    const parsed = storyWorldPreview;
+    if (!bundle || !parsed) return;
+
+    const characterIdsByName = new Map(
+      bundle.characters.map((character) => [normalizeLookupKey(character.name), character.id])
+    );
+    const locationIdsByName = new Map(
+      bundle.locations.map((location) => [normalizeLookupKey(location.name), location.id])
+    );
+    const loreIdsByTitle = new Map(
+      bundle.loreEntries.map((entry) => [normalizeLookupKey(entry.title), entry.id])
+    );
+    const timelineIdsByLabel = new Map(
+      bundle.timeline.map((event) => [normalizeLookupKey(event.label), event.id])
+    );
+    const chapterIdByNumber = new Map(
+      bundle.chapters.map((chapter) => [chapter.number, chapter.id])
+    );
+
+    for (const character of parsed.characters) {
+      const lookupKey = normalizeLookupKey(character.name);
+      const existing =
+        bundle.characters.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("char");
+
+      await saveCharacter({
+        id,
+        projectId: projectIdValue,
+        name: character.name,
+        role: character.role || existing?.role || "",
+        motivation: character.motivation || existing?.motivation || "",
+        arc: character.arc || existing?.arc || "",
+        voice: character.voice || existing?.voice || "",
+        relationships: character.relationships || existing?.relationships || "",
+        notes: character.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      characterIdsByName.set(lookupKey, id);
+    }
+
+    for (const location of parsed.locations) {
+      const lookupKey = normalizeLookupKey(location.name);
+      const existing =
+        bundle.locations.find((item) => normalizeLookupKey(item.name) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("location");
+
+      await saveLocation({
+        id,
+        projectId: projectIdValue,
+        name: location.name,
+        role: location.role || existing?.role || "",
+        narrativeStatus: location.narrativeStatus || existing?.narrativeStatus || "",
+        description: location.description || existing?.description || "",
+        notes: location.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      locationIdsByName.set(lookupKey, id);
+    }
+
+    for (const entry of parsed.lore) {
+      const lookupKey = normalizeLookupKey(entry.title);
+      const existing =
+        bundle.loreEntries.find((item) => normalizeLookupKey(item.title) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("lore");
+
+      await saveLoreEntry({
+        id,
+        projectId: projectIdValue,
+        title: entry.title,
+        category: entry.category || existing?.category || "",
+        status: entry.status || existing?.status || "",
+        description: entry.description || existing?.description || "",
+        notes: entry.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      loreIdsByTitle.set(lookupKey, id);
+    }
+
+    for (const event of parsed.timeline) {
+      const lookupKey = normalizeLookupKey(event.label);
+      const existing =
+        bundle.timeline.find((item) => normalizeLookupKey(item.label) === lookupKey) ?? null;
+      const id = existing?.id ?? createId("timeline");
+
+      await saveTimelineEventAction({
+        id,
+        projectId: projectIdValue,
+        order:
+          event.order > 0
+            ? event.order
+            : existing?.order ?? bundle.timeline.length + 1,
+        chapterId:
+          (event.chapterNumber != null && chapterIdByNumber.get(event.chapterNumber)) ||
+          existing?.chapterId,
+        label: event.label,
+        details: event.details || existing?.details || "",
+        impact: event.impact || existing?.impact || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+      timelineIdsByLabel.set(lookupKey, id);
+    }
+
+    const resolveEntityId = (type: NarrativeRelationship["sourceType"], label: string): string => {
+      const lookupKey = normalizeLookupKey(label);
+      switch (type) {
+        case "character":
+          return characterIdsByName.get(lookupKey) ?? "";
+        case "location":
+          return locationIdsByName.get(lookupKey) ?? "";
+        case "lore":
+          return loreIdsByTitle.get(lookupKey) ?? "";
+        case "timeline_event":
+          return timelineIdsByLabel.get(lookupKey) ?? "";
+        default:
+          return "";
+      }
+    };
+
+    const relationshipKey = (relationship: NarrativeRelationship): string =>
+      [
+        relationship.sourceType,
+        relationship.sourceId,
+        relationship.targetType,
+        relationship.targetId,
+        normalizeLookupKey(relationship.relationType),
+      ].join("|");
+
+    const existingRelationshipsByKey = new Map(
+      bundle.relationships.map((relationship) => [relationshipKey(relationship), relationship])
+    );
+
+    for (const relationship of parsed.relationships) {
+      const sourceId = resolveEntityId(relationship.sourceType, relationship.source);
+      const targetId = resolveEntityId(relationship.targetType, relationship.target);
+      if (!sourceId || !targetId) {
+        continue;
+      }
+
+      const candidateKey = [
+        relationship.sourceType,
+        sourceId,
+        relationship.targetType,
+        targetId,
+        normalizeLookupKey(relationship.relationType),
+      ].join("|");
+      const existing = existingRelationshipsByKey.get(candidateKey) ?? null;
+
+      await saveRelationship({
+        id: existing?.id ?? createId("relation"),
+        projectId: projectIdValue,
+        sourceType: relationship.sourceType,
+        sourceId,
+        targetType: relationship.targetType,
+        targetId,
+        relationType: relationship.relationType,
+        status: relationship.status || existing?.status || "",
+        intensity: relationship.intensity || existing?.intensity || 3,
+        notes: relationship.notes || existing?.notes || "",
+        updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+      });
+    }
+
+    setStoryWorldPreview(null);
+    setStoryWorldAiMessage(
+      "Tracked entities and relationships were applied. Review them before drafting forward."
+    );
+  }
+
+  function discardStoryWorldSuggestion() {
+    setStoryWorldPreview(null);
+    setStoryWorldAiMessage("World scaffold discarded. No entities were changed.");
+  }
+
+  async function autocompleteSelectedChapterDetails() {
+    if (!activeProject || !selectedChapter) return;
+
+    const input = buildChapterDetailsAutocompleteInput(activeProject, selectedChapter.id);
+    const context = buildChapterDetailsAutocompleteContext();
+    setChapterDetailsAiStatus("running");
+    setChapterDetailsAiError(null);
+    setChapterDetailsAiMessage(null);
+    setChapterDetailsPreview(null);
+
+    try {
+      const result = await runAiAction({
+        action: "brainstorm",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+      const parsed = parseChapterDetailsSuggestion(result.text);
+
+      if (
+        !parsed.title &&
+        !parsed.summary &&
+        !parsed.objectives?.length &&
+        !parsed.hook &&
+        !parsed.storySoFar
+      ) {
+        throw new Error("AI response could not be mapped to the selected chapter fields.");
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "chapter_details_autocomplete",
+          chapterNumber: selectedChapter.number,
+        },
+      });
+
+      setChapterDetailsPreview(parsed);
+      setChapterDetailsAiStatus("idle");
+      setChapterDetailsAiMessage(
+        "Autocomplete ready. Review the proposed chapter details, then apply or discard."
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Selected chapter autocomplete failed";
+      setChapterDetailsAiStatus("error");
+      setChapterDetailsAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "chapter_details_autocomplete",
+          chapterNumber: selectedChapter.number,
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyChapterDetailsSuggestion() {
+    if (!selectedChapter || !chapterDetailsPreview) return;
+
+    await saveChapter({
+      ...selectedChapter,
+      title: chapterDetailsPreview.title ?? selectedChapter.title,
+      summary: chapterDetailsPreview.summary ?? selectedChapter.summary,
+      objectives: chapterDetailsPreview.objectives ?? selectedChapter.objectives,
+      hook: chapterDetailsPreview.hook ?? selectedChapter.hook,
+      storySoFar: chapterDetailsPreview.storySoFar ?? selectedChapter.storySoFar,
+    });
+
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiMessage("Autocomplete applied to the selected chapter details.");
+  }
+
+  function discardChapterDetailsSuggestion() {
+    setChapterDetailsPreview(null);
+    setChapterDetailsAiMessage("Autocomplete discarded. Chapter details were not changed.");
+  }
+
+  async function computeSelectedChapterTrackers() {
+    if (!activeProject || !selectedChapter) return;
+
+    const input = buildChapterTrackerComputationInput(activeProject, selectedChapter.id);
+    const context = buildChapterTrackerComputationContext();
+    setChapterTrackersAiStatus("running");
+    setChapterTrackersAiError(null);
+    setChapterTrackersAiMessage(null);
+
+    try {
+      const result = await runAiAction({
+        action: "consistency_check",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+      const parsed = parseChapterTrackerComputation(result.text, activeProject);
+
+      if (parsed.reports.length === 0) {
+        throw new Error("AI response could not be mapped to the chapter tracker fields.");
+      }
+
+      const existingByType = new Map(
+        selectedChapterTrackerReports.map((report) => [report.trackerType, report])
+      );
+
+      for (const trackerType of listChapterTrackerTypes()) {
+        const suggestion = parsed.reports.find((item) => item.trackerType === trackerType);
+        if (!suggestion) continue;
+
+        const existing = existingByType.get(trackerType);
+        await saveChapterTrackerReport({
+          id: existing?.id ?? "",
+          projectId: projectIdValue,
+          chapterId: selectedChapter.id,
+          trackerType,
+          previousState: suggestion.previousState,
+          chapterEvolution: suggestion.chapterEvolution,
+          finalState: suggestion.finalState,
+          rawResponse: result.text,
+          updatedAt: existing?.updatedAt ?? new Date().toISOString(),
+        });
+      }
+
+      await replaceEntityHistoryForChapterAction(
+        selectedChapter.id,
+        parsed.entityHistory.map((entry) => ({
+          id: "",
+          projectId: projectIdValue,
+          chapterId: selectedChapter.id,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          label: entry.label,
+          note: entry.note,
+          updatedAt: new Date().toISOString(),
+        }))
+      );
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "chapter_tracker_computation",
+          chapterNumber: selectedChapter.number,
+        },
+      });
+
+      await openProject(projectIdValue);
+      setChapterTrackersAiStatus("idle");
+      setChapterTrackersAiMessage(
+        "Per-chapter trackers and entity history timelines were recomputed from prior chapters and the current draft."
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Chapter tracker computation failed";
+      setChapterTrackersAiStatus("error");
+      setChapterTrackersAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: "consistency_check",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "chapter_tracker_computation",
+          chapterNumber: selectedChapter.number,
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function generateChapterDraft() {
+    if (!activeProject || !selectedChapter) return;
+
+    if (selectedChapter.aiLocked) {
+      setChapterDraftAiStatus("error");
+      setChapterDraftAiError(
+        "This chapter is locked from AI rewrite. Unlock it in the Plan tab first."
+      );
+      return;
+    }
+
+    const input = buildChapterDraftInput(activeProject, selectedChapter.id);
+    const context = buildChapterDraftContext();
+    setChapterDraftAiStatus("running");
+    setChapterDraftAiError(null);
+    setChapterDraftAiMessage(null);
+
+    try {
+      const result = await runAiAction({
+        action: "continue",
+        input,
+        context,
+        styleProfile: "Manuscript-ready chapter prose with clean scene transitions",
+        settings: resolved.settings,
+      });
+
+      setChapterDraftPreview(result.text.trim());
+      setChapterDraftAiStatus("idle");
+      setChapterDraftAiMessage(
+        "Full chapter draft generated from the story bible, chapter details, scene cards, and trackers."
+      );
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "chapter_draft_generation",
+          chapterNumber: selectedChapter.number,
+          usedSceneCards: selectedScenes.length,
+        },
+      });
+
+      await openProject(projectIdValue);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Chapter draft generation failed";
+      setChapterDraftAiStatus("error");
+      setChapterDraftAiError(errorMessage);
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: "continue",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "chapter_draft_generation",
+          chapterNumber: selectedChapter.number,
+          error: errorMessage,
+        },
+      });
+
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applyGeneratedChapterDraft() {
+    if (!selectedChapter || !chapterDraftPreview.trim() || selectedChapter.aiLocked) return;
+
+    flushPendingEditorSave();
+    if (selectedChapter.content.trim()) {
+      await createSnapshot(
+        `Before AI chapter draft ${new Date().toLocaleTimeString()}`,
+        selectedChapter.id,
+        editor?.getHTML() ?? selectedChapter.content
+      );
+    }
+
+    const nextContent = plainTextToHtml(chapterDraftPreview);
+    setEditorContent(nextContent);
+    await saveChapter({
+      ...selectedChapter,
+      content: nextContent,
+    });
+
+    setChapterDraftPreview("");
+    setChapterDraftAiMessage("Generated chapter draft inserted into the editor.");
+  }
+
+  async function suggestSceneCards() {
+    if (!activeProject || !selectedChapter) return;
+
+    const input = buildSceneCardSuggestionInput(activeProject, selectedChapter.id);
+    const context = buildSceneCardSuggestionContext();
+    setSceneCardsAiStatus("running");
+    setSceneCardsAiError(null);
+    setSceneCardsAiMessage(null);
+    setSceneCardsPreview(null);
+
+    try {
+      const result = await runAiAction({
+        action: "brainstorm",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+      const parsed = parseSceneCardSuggestions(result.text);
+
+      if (parsed.length === 0) {
+        throw new Error("AI response could not be mapped to scene cards.");
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "scene_card_suggestion",
+          chapterNumber: selectedChapter.number,
+          scenesSuggested: parsed.length,
+        },
+      });
+
+      setSceneCardsPreview(parsed);
+      setSceneCardsAiStatus("idle");
+      setSceneCardsAiMessage(
+        `${parsed.length} scene card${parsed.length > 1 ? "s" : ""} proposed. Review below, then apply or discard.`
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Scene card suggestion failed";
+      setSceneCardsAiStatus("error");
+      setSceneCardsAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter?.id,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "scene_card_suggestion",
+          chapterNumber: selectedChapter.number,
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applySceneCardSuggestions() {
+    if (!selectedChapter || !sceneCardsPreview || sceneCardsPreview.length === 0) return;
+
+    const existingScenes = selectedScenes.slice().sort((a, b) => a.order - b.order);
+
+    for (const [index, suggestion] of sceneCardsPreview.entries()) {
+      const existing = existingScenes[index];
+      const timestamp = new Date().toISOString();
+
+      await saveScene({
+        id: existing?.id ?? createId("scene"),
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        order: index + 1,
+        title: suggestion.title || existing?.title || "",
+        description: suggestion.description || existing?.description || "",
+        location: suggestion.location || existing?.location || "",
+        characters:
+          suggestion.characters.length > 0 ? suggestion.characters : existing?.characters || [],
+        notes: suggestion.notes || existing?.notes || "",
+        draftText: suggestion.draftText || existing?.draftText || "",
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: existing?.updatedAt ?? timestamp,
+      });
+    }
+
+    setSceneCardsPreview(null);
+    setSceneCardsAiMessage("Proposed scene cards were applied to this chapter.");
+  }
+
+  function discardSceneCardSuggestions() {
+    setSceneCardsPreview(null);
+    setSceneCardsAiMessage("Scene card proposal discarded. Existing cards were not changed.");
+  }
+
+  async function generateSceneDraft(scene: Scene) {
+    if (!activeProject || !selectedChapter) return;
+
+    const input = buildSceneDraftInput(activeProject, selectedChapter.id, scene.id);
+    const context = buildSceneDraftContext();
+    setSceneDraftAiSceneId(scene.id);
+    setSceneDraftAiError(null);
+    setSceneDraftAiMessage(null);
+    setSceneDraftPreview(null);
+
+    try {
+      const result = await runAiAction({
+        action: "continue",
+        input,
+        context,
+        settings: resolved.settings,
+      });
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "scene_draft_generation",
+          chapterNumber: selectedChapter.number,
+          sceneOrder: scene.order,
+        },
+      });
+
+      setSceneDraftPreview({ sceneId: scene.id, text: result.text });
+      setSceneDraftAiSceneId(null);
+      setSceneDraftAiMessage(
+        `Draft proposed for scene ${scene.order}. Review below, then apply or discard.`
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Scene draft generation failed";
+      setSceneDraftAiSceneId(null);
+      setSceneDraftAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: "continue",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "scene_draft_generation",
+          chapterNumber: selectedChapter.number,
+          sceneOrder: scene.order,
+          error: errorMessage,
+        },
+      });
+      await openProject(projectIdValue);
+    }
+  }
+
+  async function applySceneDraftPreview() {
+    if (!sceneDraftPreview) return;
+    const scene = selectedScenes.find((item) => item.id === sceneDraftPreview.sceneId);
+    if (!scene) {
+      setSceneDraftPreview(null);
+      return;
+    }
+
+    await saveScene({
+      ...scene,
+      draftText: sceneDraftPreview.text,
+    });
+
+    setSceneDraftPreview(null);
+    setSceneDraftAiMessage(`Scene ${scene.order} draft text was updated from the proposal.`);
+  }
+
+  function discardSceneDraftPreview() {
+    setSceneDraftPreview(null);
+    setSceneDraftAiMessage("Scene draft proposal discarded.");
+  }
+
+  const mainClass = focusMode
+    ? "grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]"
+    : "grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]";
+
+  return {
+    t,
+    activeProject,
+    storeError,
+    openProject,
+    saveProjectMeta,
+    saveStoryBible,
+    saveChapter,
+    saveChapterTrackerReport,
+    addChapter,
+    deleteChapter,
+    reorderChapter,
+    saveScene,
+    addScene,
+    deleteScene,
+    reorderScene,
+    saveCharacter,
+    deleteCharacter,
+    saveLocation,
+    deleteLocation,
+    saveLoreEntry,
+    deleteLoreEntry,
+    saveTimelineEventAction,
+    deleteTimelineEventAction,
+    saveRelationship,
+    deleteRelationship,
+    saveEntityProgressionAction,
+    deleteEntityProgression,
+    replaceEntityHistoryForChapterAction,
+    createRevisionIssue,
+    updateRevisionIssueStatus,
+    deleteRevisionIssue,
+    saveChecklistItem,
+    toggleChecklistItem,
+    deleteChecklistItem,
+    saveAnnotation,
+    deleteAnnotation,
+    saveGoal,
+    createSnapshot,
+    restoreSnapshot,
+    exportActiveProjectJson,
+    exportActiveProjectMarkdown,
+    exportActiveProjectBackup,
+    resolved,
+    saveScope,
+    resetScope,
+    activeTab,
+    setActiveTab,
+    selectedChapterId,
+    setSelectedChapterId,
+    focusMode,
+    setFocusMode,
+    readingMode,
+    setReadingMode,
+    searchText,
+    setSearchText,
+    replaceText,
+    setReplaceText,
+    aiAction,
+    setAiAction,
+    selectedAssistantId,
+    setSelectedAssistantId,
+    aiStatus,
+    aiError,
+    aiDraft,
+    setAiDraft,
+    aiDiff,
+    setAiDiff,
+    aiPromptContext,
+    setAiPromptContext,
+    outlineSearchVisible,
+    setOutlineSearchVisible,
+    storyBibleAiStatus,
+    storyBibleAiError,
+    storyBibleAiMessage,
+    storyWorldAiStatus,
+    storyWorldAiError,
+    storyWorldAiMessage,
+    chapterDetailsAiStatus,
+    chapterDetailsAiError,
+    chapterDetailsAiMessage,
+    chapterTrackersAiStatus,
+    chapterTrackersAiError,
+    chapterTrackersAiMessage,
+    chapterDraftAiStatus,
+    chapterDraftAiError,
+    chapterDraftAiMessage,
+    chapterDraftPreview,
+    setChapterDraftPreview,
+    selectedHistoryEntityKey,
+    setSelectedHistoryEntityKey,
+    sceneCardsAiStatus,
+    sceneCardsAiError,
+    sceneCardsAiMessage,
+    sceneDraftAiSceneId,
+    sceneDraftAiError,
+    sceneDraftAiMessage,
+    searchReplaceMessage,
+    storyBiblePreview,
+    storyWorldPreview,
+    chapterDetailsPreview,
+    sceneCardsPreview,
+    sceneDraftPreview,
+    offline,
+    project,
+    projectIdValue,
+    selectedChapter,
+    selectedScenes,
+    selectedChapterTrackerReports,
+    selectedChapterEntityHistory,
+    continuityConflicts,
+    publishArtifacts,
+    marketingArtifacts,
+    selectedAssistant,
+    trackedEntityOptions,
+    historyEntityOptions,
+    selectedHistoryEntity,
+    selectedHistoryTimeline,
+    progressionByEntity,
+    pendingAiCount,
+    manuscriptWordCount,
+    chapterScore,
+    chapterGrammarSuggestions,
+    editor,
+    setEditorContent,
+    flushPendingEditorSave,
+    mainClass,
+    applySearchReplace,
+    runAiPreview,
+    applyAiDraft,
+    appendSceneToDraft,
+    createManualScene,
+    confirmDeleteChapter,
+    createIssueFromGrammar,
+    addBlankLocation,
+    addBlankLoreEntry,
+    addBlankRelationship,
+    addBlankProgression,
+    exportPublishArtifacts,
+    exportMarketingArtifacts,
+    suggestStoryBible,
+    applyStoryBibleSuggestion,
+    discardStoryBibleSuggestion,
+    suggestStoryWorldScaffold,
+    applyStoryWorldSuggestion,
+    discardStoryWorldSuggestion,
+    autocompleteSelectedChapterDetails,
+    applyChapterDetailsSuggestion,
+    discardChapterDetailsSuggestion,
+    computeSelectedChapterTrackers,
+    generateChapterDraft,
+    applyGeneratedChapterDraft,
+    suggestSceneCards,
+    applySceneCardSuggestions,
+    discardSceneCardSuggestions,
+    generateSceneDraft,
+    applySceneDraftPreview,
+    discardSceneDraftPreview,
+  };
+}
+
+export type WorkspaceController = ReturnType<typeof useWorkspaceController>;
