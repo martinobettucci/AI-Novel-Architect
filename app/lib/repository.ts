@@ -1407,6 +1407,58 @@ export function canonDeltasForChapter(bundle: ProjectBundle, chapterId: string):
   return bundle.canonDeltas.filter((delta) => delta.chapterId === chapterId);
 }
 
+// --- POV & knowledge: what a character knows vs. believes, chapter by chapter -
+
+export interface KnowledgeFrame {
+  chapterId: string;
+  chapterNumber: number;
+  chapterTitle: string;
+  knowledge: string;
+  belief: string;
+  /** True when the character believes something that diverges from what they know. */
+  diverges: boolean;
+}
+
+function normalizedEquals(a: string, b: string): boolean {
+  return a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+}
+
+/**
+ * Reconstruct a character's knowledge/belief across chapters from validated
+ * progression rows. A divergence (knows X but believes Y) is the raw material
+ * for dramatic irony and unreliable narration, so it is surfaced, not hidden.
+ */
+export function buildKnowledgeTimeline(
+  bundle: ProjectBundle,
+  characterId: string
+): KnowledgeFrame[] {
+  const rows = bundle.entityProgression.filter(
+    (row) => row.entityType === "character" && row.entityId === characterId
+  );
+
+  return bundle.chapters
+    .slice()
+    .sort((a, b) => a.number - b.number)
+    .map((chapter) => {
+      const row = rows.find((item) => item.chapterId === chapter.id);
+      const knowledge = row?.knowledge ?? "";
+      const belief = row?.belief ?? "";
+      return {
+        chapterId: chapter.id,
+        chapterNumber: chapter.number,
+        chapterTitle: chapter.title,
+        knowledge,
+        belief,
+        diverges: Boolean(knowledge.trim() && belief.trim() && !normalizedEquals(knowledge, belief)),
+      };
+    });
+}
+
+/** Chapters where the character's belief diverges from their knowledge. */
+export function beliefDivergences(bundle: ProjectBundle, characterId: string): KnowledgeFrame[] {
+  return buildKnowledgeTimeline(bundle, characterId).filter((frame) => frame.diverges);
+}
+
 // --- Writing sessions: per-day throughput against goals ----------------------
 
 export async function recordWritingProgress(

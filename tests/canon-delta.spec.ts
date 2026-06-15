@@ -179,3 +179,35 @@ describe("writing sessions", () => {
     expect(wordsWrittenToday(after!)).toBe(150);
   });
 });
+
+describe("knowledge timeline (POV)", () => {
+  beforeEach(async () => {
+    await resetDatabase();
+  });
+
+  it("flags chapters where belief diverges from knowledge", async () => {
+    const { buildKnowledgeTimeline, beliefDivergences, saveEntityProgression } = await import(
+      "@/app/lib/repository"
+    );
+    const { createEntityProgression } = await import("@/app/domain/defaults");
+
+    const bundle = await freshProject();
+    const projectId = bundle.project.id;
+    const chapterId = bundle.chapters[0].id;
+
+    await saveEntityProgression({
+      ...createEntityProgression(projectId),
+      entityType: "character",
+      entityId: "char-x",
+      chapterId,
+      knowledge: "The bridge is out",
+      belief: "The bridge is safe",
+    });
+
+    const after = await getProjectBundle(projectId);
+    const timeline = buildKnowledgeTimeline(after!, "char-x");
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0].diverges).toBe(true);
+    expect(beliefDivergences(after!, "char-x")).toHaveLength(1);
+  });
+});

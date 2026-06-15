@@ -3,6 +3,7 @@
 import type { EntityProgression, NarrativeRelationship } from "@/app/domain/models";
 import { createId } from "@/app/domain/defaults";
 import { chapterLabel, entityTypeLabel, historyEntityTypeLabel, sceneLabel } from "../helpers";
+import { KnowledgePanel } from "../KnowledgePanel";
 import type { WorkspaceController } from "../useWorkspaceController";
 
 export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
@@ -1034,6 +1035,8 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                 )}
               </div>
             </article>
+
+            <KnowledgePanel ctx={ctx} />
           </section>
   );
 }
