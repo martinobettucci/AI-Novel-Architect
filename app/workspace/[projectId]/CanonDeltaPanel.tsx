@@ -122,6 +122,7 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
     deltaAiStatus,
     deltaAiError,
     deltaAiMessage,
+    orchestrationSteps,
   } = ctx;
 
   if (!selectedChapter) return null;
@@ -151,6 +152,28 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
 
       {deltaAiMessage && <p className="mt-3 text-sm text-emerald-700">{deltaAiMessage}</p>}
       {deltaAiError && <p className="mt-3 text-sm text-rose-700">{deltaAiError}</p>}
+
+      {orchestrationSteps.length > 0 && (
+        <ol className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          {orchestrationSteps.map((step, index) => (
+            <li key={step.id} className="flex items-center gap-2">
+              {index > 0 && <span className="text-slate-400">→</span>}
+              <span
+                className={`rounded-full px-2 py-0.5 font-semibold ${
+                  step.status === "ok"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : step.status === "failed"
+                      ? "bg-rose-100 text-rose-800"
+                      : "bg-slate-100 text-slate-600"
+                }`}
+                title={`${step.detail}${step.inputChars ? ` · ${step.inputChars} car. d'entrée` : ""}`}
+              >
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {proposed.length > 0 ? (
         <div className="mt-4 grid gap-3">

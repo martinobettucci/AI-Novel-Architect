@@ -35,6 +35,7 @@ function makeCtx(overrides: Partial<WorkspaceController>): WorkspaceController {
     deltaAiStatus: "idle",
     deltaAiError: null,
     deltaAiMessage: null,
+    orchestrationSteps: [],
     approveDelta: vi.fn(),
     rejectDelta: vi.fn(),
     deleteDelta: vi.fn(),

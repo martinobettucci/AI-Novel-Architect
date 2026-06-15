@@ -61,12 +61,13 @@ import {
   parseStoryWorldSuggestion,
   type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
-import { buildPreviewApply, runAiAction, runStructuredAiAction } from "@/app/lib/ai/client";
+import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
 import {
-  buildChapterDeltaContext,
-  buildChapterDeltaInput,
-  mapChapterDeltaProposals,
-} from "@/app/lib/ai/canonDeltaAnalysis";
+  DEFAULT_ORCHESTRATION_POLICY,
+  runChapterOrchestration,
+  type OrchestratorRunStep,
+  type StructuredRunner,
+} from "@/app/lib/ai/orchestrator";
 import type { DiffChunk } from "@/app/lib/ai/diff";
 import {
   buildGrammarSuggestions,
@@ -200,6 +201,7 @@ export function useWorkspaceController(projectId: string) {
     useState<"idle" | "running" | "error">("idle");
   const [deltaAiError, setDeltaAiError] = useState<string | null>(null);
   const [deltaAiMessage, setDeltaAiMessage] = useState<string | null>(null);
+  const [orchestrationSteps, setOrchestrationSteps] = useState<OrchestratorRunStep[]>([]);
   const [storyBiblePreview, setStoryBiblePreview] = useState<ReturnType<
     typeof parseStoryBibleSuggestion
   > | null>(null);
@@ -1340,128 +1342,169 @@ export function useWorkspaceController(projectId: string) {
     }
   }
 
+  /** Resolve AI proposals to canon ids, run the deterministic verifier, persist as proposed deltas. */
+  async function persistDeltaProposals(
+    bundle: NonNullable<typeof activeProject>,
+    chapter: NonNullable<typeof selectedChapter>,
+    proposals: Awaited<ReturnType<typeof runChapterOrchestration>>["proposals"]
+  ): Promise<{ created: number; skipped: number }> {
+    const idByKey = new Map<string, string>();
+    bundle.characters.forEach((item) =>
+      idByKey.set(`character:${normalizeLookupKey(item.name)}`, item.id)
+    );
+    bundle.locations.forEach((item) =>
+      idByKey.set(`location:${normalizeLookupKey(item.name)}`, item.id)
+    );
+    bundle.loreEntries.forEach((item) =>
+      idByKey.set(`lore:${normalizeLookupKey(item.title)}`, item.id)
+    );
+    bundle.timeline.forEach((item) =>
+      idByKey.set(`timeline_event:${normalizeLookupKey(item.label)}`, item.id)
+    );
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const proposal of proposals) {
+      let entityId = "";
+      let entityLabel = proposal.entityName;
+
+      if (proposal.entityType === "chapter") {
+        entityId = chapter.id;
+        entityLabel = chapterLabel(chapter);
+      } else if (proposal.entityType === "relationship") {
+        skipped += 1;
+        continue;
+      } else {
+        const resolvedId = idByKey.get(
+          `${proposal.entityType}:${normalizeLookupKey(proposal.entityName)}`
+        );
+        if (!resolvedId) {
+          skipped += 1;
+          continue;
+        }
+        entityId = resolvedId;
+      }
+
+      const verdict = verifyCanonDelta(
+        { after: proposal.after, confidence: proposal.confidence, evidence: proposal.evidence },
+        chapter.content
+      );
+
+      await saveDelta(
+        createCanonDelta(projectIdValue, {
+          chapterId: chapter.id,
+          entityType: proposal.entityType,
+          entityId,
+          entityLabel,
+          layer: proposal.layer,
+          before: proposal.before,
+          after: proposal.after,
+          confidence: proposal.confidence,
+          rationale: proposal.rationale,
+          evidence: proposal.evidence,
+          status: "proposed",
+          source: "ai",
+          verifierVerdict: verdict.verdict,
+          verifierReason: verdict.reason,
+        })
+      );
+      created += 1;
+    }
+
+    return { created, skipped };
+  }
+
   async function analyzeChapterForDeltas() {
     const bundle = activeProject;
     if (!bundle || !selectedChapter) return;
+    const chapter = selectedChapter;
 
-    const input = buildChapterDeltaInput(bundle, selectedChapter.id);
-    const context = buildChapterDeltaContext();
     setDeltaAiStatus("running");
     setDeltaAiError(null);
     setDeltaAiMessage(null);
+    setOrchestrationSteps([]);
+
+    const runner: StructuredRunner = async (req) => {
+      const result = await runAiAction({
+        action: req.action,
+        input: req.input,
+        context: req.context,
+        settings: resolved.settings,
+        responseFormat: "json",
+      });
+      return result.text;
+    };
 
     try {
-      const { data: proposals, result } = await runStructuredAiAction(
-        { action: "consistency_check", input, context, settings: resolved.settings },
-        mapChapterDeltaProposals
+      const orchestration = await runChapterOrchestration(
+        bundle,
+        chapter.id,
+        DEFAULT_ORCHESTRATION_POLICY,
+        runner
       );
 
-      // Resolve proposed entity names to canon ids; verify each against the text.
-      const idByKey = new Map<string, string>();
-      bundle.characters.forEach((item) =>
-        idByKey.set(`character:${normalizeLookupKey(item.name)}`, item.id)
-      );
-      bundle.locations.forEach((item) =>
-        idByKey.set(`location:${normalizeLookupKey(item.name)}`, item.id)
-      );
-      bundle.loreEntries.forEach((item) =>
-        idByKey.set(`lore:${normalizeLookupKey(item.title)}`, item.id)
-      );
-      bundle.timeline.forEach((item) =>
-        idByKey.set(`timeline_event:${normalizeLookupKey(item.label)}`, item.id)
+      const { created, skipped } = await persistDeltaProposals(
+        bundle,
+        chapter,
+        orchestration.proposals
       );
 
-      const chapterText = selectedChapter.content;
-      let created = 0;
-      let skipped = 0;
-
-      for (const proposal of proposals) {
-        let entityId = "";
-        let entityLabel = proposal.entityName;
-
-        if (proposal.entityType === "chapter") {
-          entityId = selectedChapter.id;
-          entityLabel = chapterLabel(selectedChapter);
-        } else if (proposal.entityType === "relationship") {
-          skipped += 1;
-          continue;
-        } else {
-          const resolvedId = idByKey.get(
-            `${proposal.entityType}:${normalizeLookupKey(proposal.entityName)}`
-          );
-          if (!resolvedId) {
-            skipped += 1;
-            continue;
-          }
-          entityId = resolvedId;
-        }
-
-        const verdict = verifyCanonDelta(
-          { after: proposal.after, confidence: proposal.confidence, evidence: proposal.evidence },
-          chapterText
-        );
-
-        await saveDelta(
-          createCanonDelta(projectIdValue, {
-            chapterId: selectedChapter.id,
-            entityType: proposal.entityType,
-            entityId,
-            entityLabel,
-            layer: proposal.layer,
-            before: proposal.before,
-            after: proposal.after,
-            confidence: proposal.confidence,
-            rationale: proposal.rationale,
-            evidence: proposal.evidence,
-            status: "proposed",
-            source: "ai",
-            verifierVerdict: verdict.verdict,
-            verifierReason: verdict.reason,
-          })
-        );
-        created += 1;
+      // Audit findings become tracked revision issues (domain + severity + message).
+      for (const diagnostic of orchestration.diagnostics) {
+        await createRevisionIssue({
+          chapterId: chapter.id,
+          title: `${diagnostic.domain === "pov" ? "POV" : "Continuité"} · ${diagnostic.severity}`,
+          description: diagnostic.message,
+          severity: diagnostic.severity,
+        });
       }
+
+      setOrchestrationSteps(orchestration.steps);
 
       await logAiAction({
         projectId: projectIdValue,
-        chapterId: selectedChapter.id,
-        action: result.action,
+        chapterId: chapter.id,
+        action: "consistency_check",
         status: "completed",
-        model: result.model,
-        providerBaseUrl: result.baseUrl,
-        inputPreview: input,
-        outputPreview: result.text,
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: orchestration.steps.map((step) => `${step.id}:${step.status}`).join(" → "),
+        outputPreview: JSON.stringify(orchestration.steps),
         metadata: {
-          feature: "chapter_delta_analysis",
-          proposed: proposals.length,
+          feature: "chapter_orchestration",
+          steps: orchestration.steps.map((step) => step.id),
+          proposed: orchestration.proposals.length,
           created,
           skipped,
+          diagnostics: orchestration.diagnostics.length,
         },
       });
 
-      setDeltaAiStatus("idle");
+      const anyFailed = orchestration.steps.some((step) => step.status === "failed");
+      setDeltaAiStatus(anyFailed ? "error" : "idle");
+      if (anyFailed) {
+        setDeltaAiError("Certaines étapes de l'orchestration ont échoué (voir le journal de pipeline).");
+      }
       setDeltaAiMessage(
-        created === 0
-          ? "No applicable canon deltas were proposed for this chapter."
-          : `${created} canon delta${created > 1 ? "s" : ""} proposed${
-              skipped > 0 ? `, ${skipped} skipped (unmatched entity or unsupported type)` : ""
-            }. Review and validate below.`
+        `${created} delta(s) proposé(s)${skipped > 0 ? `, ${skipped} ignoré(s)` : ""} · ` +
+          `${orchestration.diagnostics.length} diagnostic(s) ajouté(s) aux problèmes de révision.`
       );
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "Chapter delta analysis failed";
+        error instanceof Error ? error.message : "Chapter orchestration failed";
       setDeltaAiStatus("error");
       setDeltaAiError(errorMessage);
       await logAiAction({
         projectId: projectIdValue,
-        chapterId: selectedChapter.id,
+        chapterId: chapter.id,
         action: "consistency_check",
         status: "failed",
         model: resolved.settings.llm.model,
         providerBaseUrl: resolved.settings.llm.baseUrl,
-        inputPreview: input,
+        inputPreview: "chapter_orchestration",
         outputPreview: "",
-        metadata: { feature: "chapter_delta_analysis", error: errorMessage },
+        metadata: { feature: "chapter_orchestration", error: errorMessage },
       });
     }
   }
@@ -1858,6 +1901,7 @@ export function useWorkspaceController(projectId: string) {
     deltaAiStatus,
     deltaAiError,
     deltaAiMessage,
+    orchestrationSteps,
     storyBiblePreview,
     storyWorldPreview,
     chapterDetailsPreview,
