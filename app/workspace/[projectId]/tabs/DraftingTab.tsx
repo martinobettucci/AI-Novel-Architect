@@ -94,7 +94,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                 onClick={() => setOutlineSearchVisible((current) => !current)}
                 className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
               >
-                {outlineSearchVisible ? "Hide" : "Show"} search/replace
+                {outlineSearchVisible ? t("drafting.hideSearchReplace") : t("drafting.showSearchReplace")}
               </button>
 
               {outlineSearchVisible && (
@@ -102,13 +102,13 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   <input
                     value={searchText}
                     onChange={(event) => setSearchText(event.target.value)}
-                    placeholder="Search"
+                    placeholder={t("drafting.searchPlaceholder")}
                     className="rounded border border-slate-300 px-2 py-1 text-sm"
                   />
                   <input
                     value={replaceText}
                     onChange={(event) => setReplaceText(event.target.value)}
-                    placeholder="Replace"
+                    placeholder={t("drafting.replacePlaceholder")}
                     className="rounded border border-slate-300 px-2 py-1 text-sm"
                   />
                   <button
@@ -116,7 +116,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                     disabled={!searchText.trim()}
                     className="rounded bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
                   >
-                    Apply globally
+                    {t("drafting.applyGlobally")}
                   </button>
                   {searchReplaceMessage && (
                     <p className="text-xs text-slate-600">{searchReplaceMessage}</p>
@@ -126,12 +126,12 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
 
               {activeProject.chapters.length === 0 ? (
                 <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-600">
-                  No chapters yet.
+                  {t("drafting.noChapters")}
                   <button
                     onClick={() => void addChapter()}
                     className="mt-2 block rounded border border-slate-300 px-2 py-1 text-xs"
                   >
-                    Add first chapter
+                    {t("drafting.addFirstChapter")}
                   </button>
                 </div>
               ) : (
@@ -164,7 +164,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                     <div>
                       <h2 className="text-xl font-semibold text-slate-900">{chapterLabel(selectedChapter)}</h2>
                       <p className="text-xs text-slate-600">
-                        Chapter quality score: {chapterScore}/10 · Suggestions: {chapterGrammarSuggestions.length}
+                        {t("drafting.qualityLine", { score: chapterScore, count: chapterGrammarSuggestions.length })}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -172,13 +172,13 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                         onClick={() => setFocusMode((current) => !current)}
                         className="rounded border border-slate-300 px-2 py-1 text-xs"
                       >
-                        {focusMode ? "Exit focus" : "Focus mode"}
+                        {focusMode ? t("drafting.exitFocus") : t("drafting.focusMode")}
                       </button>
                       <button
                         onClick={() => setReadingMode((current) => !current)}
                         className="rounded border border-slate-300 px-2 py-1 text-xs"
                       >
-                        {readingMode ? "Edit mode" : "Reading mode"}
+                        {readingMode ? t("drafting.editMode") : t("drafting.readingMode")}
                       </button>
                       <button
                         onClick={() =>
@@ -190,7 +190,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-xs"
                       >
-                        Snapshot
+                        {t("drafting.snapshot")}
                       </button>
                     </div>
                   </div>
@@ -356,8 +356,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
                         >
                           {chapterDraftAiStatus === "running"
-                            ? "Drafting chapter..."
-                            : "AI draft full chapter"}
+                            ? t("drafting.draftingChapter")
+                            : t("drafting.aiDraftFullChapter")}
                         </button>
                       </div>
                     </div>
@@ -421,9 +421,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                       </button>
                     </div>
 
-                    <p className="mt-3 text-xs text-slate-500">
-                      Manual editing is enabled unless Reading mode is active.
-                    </p>
+<p className="mt-3 text-xs text-slate-500">{t("drafting.manualEditing")}</p>
                     {chapterDraftAiMessage && (
                       <p className="mt-2 text-sm text-emerald-700">{chapterDraftAiMessage}</p>
                     )}
@@ -442,11 +440,9 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   {chapterDraftPreview && (
                     <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          AI full chapter preview
-                        </h3>
+<h3 className="text-sm font-semibold text-slate-900">{t("drafting.aiFullPreview")}</h3>
                         <span className="text-xs text-slate-500">
-                          {plainTextWordCount(chapterDraftPreview)} generated words
+                          {t("drafting.generatedWords", { count: plainTextWordCount(chapterDraftPreview) })}
                         </span>
                       </div>
                       <pre className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -457,13 +453,13 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           onClick={() => void applyGeneratedChapterDraft()}
                           className="rounded bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
                         >
-                          Replace chapter with preview
+                          {t("drafting.replaceWithPreview")}
                         </button>
                         <button
                           onClick={() => setChapterDraftPreview("")}
                           className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-700"
                         >
-                          Discard preview
+                          {t("drafting.discardPreview")}
                         </button>
                       </div>
                     </div>
@@ -484,7 +480,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           title="Add a blank scene card to the selected chapter."
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-40"
                         >
-                          Add scene manually
+                          {t("drafting.addSceneManually")}
                         </button>
                         <button
                           onClick={() => void suggestSceneCards()}
@@ -492,8 +488,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-40"
                         >
                           {sceneCardsAiStatus === "running"
-                            ? "Suggesting cards..."
-                            : "AI suggest scene cards"}
+                            ? t("drafting.suggestingCards")
+                            : t("drafting.aiSuggestScenes")}
                         </button>
                       </div>
                     </div>
@@ -511,9 +507,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                     )}
                     {sceneCardsPreview && (
                       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                          AI scene card proposal — not applied yet
-                        </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-amber-800">{t("drafting.sceneProposalNotApplied")}</p>
                         <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-slate-800">
                           {sceneCardsPreview.map((suggestion, index) => (
                             <li key={`${suggestion.title}-${index}`}>
@@ -539,7 +533,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             onClick={() => void applySceneCardSuggestions()}
                             className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
-                            Apply scene cards
+                            {t("drafting.applySceneCards")}
                           </button>
                           <button
                             onClick={discardSceneCardSuggestions}
@@ -758,21 +752,19 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:opacity-40"
                           >
                             {sceneDraftAiSceneId === scene.id
-                              ? "Generating draft..."
-                              : "AI generate scene draft"}
+                              ? t("drafting.generatingDraft")
+                              : t("drafting.aiGenerateSceneDraft")}
                           </button>
                           <button
                             onClick={() => void appendSceneToDraft(scene)}
                             className="rounded border border-teal-300 px-2 py-1 text-xs text-teal-700"
                           >
-                            Convert card to draft text
+                            {t("drafting.convertToDraft")}
                           </button>
                         </div>
                         {sceneDraftPreview?.sceneId === scene.id && (
                           <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                              AI draft proposal — not applied yet
-                            </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-amber-800">{t("drafting.draftProposalNotApplied")}</p>
                             <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-amber-200 bg-white p-2 text-xs text-slate-700">
                               {sceneDraftPreview.text}
                             </pre>
@@ -781,7 +773,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                 onClick={() => void applySceneDraftPreview()}
                                 className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                               >
-                                Apply to draft seed
+                                {t("drafting.applyToDraftSeed")}
                               </button>
                               <button
                                 onClick={discardSceneDraftPreview}
@@ -850,7 +842,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                       <input
                         value={aiPromptContext}
                         onChange={(event) => setAiPromptContext(event.target.value)}
-                        placeholder="Optional extra instructions"
+                        placeholder={t("drafting.extraInstructions")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <button
@@ -858,7 +850,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                         disabled={aiStatus === "running"}
                         className="rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
                       >
-                        {aiStatus === "running" ? "Running…" : "Run AI"}
+                        {aiStatus === "running" ? t("drafting.running") : t("drafting.runAi")}
                       </button>
                     </div>
 
@@ -866,7 +858,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
 
                     {aiDiff.length > 0 && (
                       <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 p-3">
-                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Preview diff</h4>
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">{t("drafting.previewDiff")}</h4>
                         <div className="max-h-56 space-y-1 overflow-y-auto rounded border border-slate-200 bg-white p-2 text-xs">
                           {aiDiff.map((chunk, index) => (
                             <p
@@ -890,7 +882,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                             onClick={() => void applyAiDraft()}
                             className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                           >
-                            Apply draft
+                            {t("drafting.applyDraft")}
                           </button>
                           <button
                             onClick={() => {
@@ -907,9 +899,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
 
                     {aiDraft && aiDiff.length === 0 && (
                       <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 p-3">
-                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                          Assistant output
-                        </h4>
+<h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">{t("drafting.assistantOutput")}</h4>
                         <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded border border-slate-200 bg-white p-2 text-xs text-slate-700">
                           {aiDraft}
                         </pre>
@@ -919,14 +909,14 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               onClick={() => void applyAiDraft()}
                               className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                             >
-                              Insert into chapter
+                              {t("drafting.insertIntoChapter")}
                             </button>
                           )}
                           <button
                             onClick={() => setAiDraft("")}
                             className="rounded border border-slate-300 px-3 py-1.5 text-xs"
                           >
-                            Clear
+                            {t("drafting.clear")}
                           </button>
                         </div>
                       </div>
@@ -950,7 +940,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                       }
                       className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
                     >
-                      Add annotation
+                      {t("drafting.addAnnotation")}
                     </button>
 
                     <div className="mt-2 space-y-2">
