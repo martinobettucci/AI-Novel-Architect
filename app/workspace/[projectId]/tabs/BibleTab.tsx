@@ -89,7 +89,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
               {storyBiblePreview && (
                 <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                    AI proposal — not applied yet
+                    {t("ai.proposalNotApplied")}
                   </p>
                   <dl className="mt-2 space-y-2 text-sm text-slate-800">
                     {storyBiblePreview.premise && (
@@ -122,13 +122,13 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                       onClick={() => void applyStoryBibleSuggestion()}
                       className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                     >
-                      Apply proposal
+                      {t("ai.applyProposal")}
                     </button>
                     <button
                       onClick={discardStoryBibleSuggestion}
                       className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700"
                     >
-                      Discard
+                      {t("ai.discard")}
                     </button>
                   </div>
                 </div>
@@ -180,7 +180,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                       onClick={() => void applyStoryWorldSuggestion()}
                       className="rounded bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white"
                     >
-                      Apply scaffold
+                      {t("bible.applyScaffold")}
                     </button>
                     <button
                       onClick={discardStoryWorldSuggestion}
@@ -196,7 +196,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
               </p>
               <div className="mt-3 grid gap-3">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Premise
+                  {t("bible.premise")}
                   <textarea
                     rows={3}
                     value={activeProject.bible.premise}
@@ -210,7 +210,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Themes (comma separated)
+                  {t("bible.themes")}
                   <input
                     value={activeProject.bible.themes.join(", ")}
                     onChange={(event) =>
@@ -226,7 +226,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Stakes
+                  {t("bible.stakes")}
                   <textarea
                     rows={2}
                     value={activeProject.bible.stakes}
@@ -240,7 +240,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  World rules
+                  {t("bible.worldRules")}
                   <textarea
                     rows={4}
                     value={activeProject.bible.worldRules}
@@ -271,7 +271,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
               <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Story-wide entity or relationship
+                  {t("bible.storyWideEntity")}
                   <select
                     value={selectedHistoryEntity?.key ?? ""}
                     onChange={(event) => setSelectedHistoryEntityKey(event.target.value)}
@@ -361,7 +361,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                 }
                 className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
               >
-                Add character
+                {t("bible.addCharacter")}
               </button>
               <div className="mt-3 space-y-3">
                 {activeProject.characters.map((character) => (
@@ -375,7 +375,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             name: event.target.value,
                           })
                         }
-                        placeholder="Character name"
+                        placeholder={t("bible.charName")}
                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <button
@@ -394,7 +394,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                           arc: event.target.value,
                         })
                       }
-                      placeholder="Arc"
+                      placeholder={t("bible.arc")}
                       className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                     />
                   </div>
@@ -409,7 +409,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   onClick={addBlankLocation}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                 >
-                  Add location
+                  {t("bible.addLocation")}
                 </button>
               </div>
               <div className="mt-3 space-y-3">
@@ -424,7 +424,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             name: event.target.value,
                           })
                         }
-                        placeholder="Location name"
+                        placeholder={t("bible.locName")}
                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <button
@@ -443,7 +443,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             role: event.target.value,
                           })
                         }
-                        placeholder="Role"
+                        placeholder={t("bible.role")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -454,7 +454,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             narrativeStatus: event.target.value,
                           })
                         }
-                        placeholder="Narration status"
+                        placeholder={t("bible.narrationStatus")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                     </div>
@@ -467,7 +467,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                           description: event.target.value,
                         })
                       }
-                      placeholder="Description"
+                      placeholder={t("bible.description")}
                       className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm"
                     />
                   </div>
@@ -482,7 +482,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   onClick={addBlankLoreEntry}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                 >
-                  Add lore item
+                  {t("bible.addLore")}
                 </button>
               </div>
               <div className="mt-3 space-y-3">
@@ -497,7 +497,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             title: event.target.value,
                           })
                         }
-                        placeholder="Lore title"
+                        placeholder={t("bible.loreTitle")}
                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <button
@@ -516,7 +516,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             category: event.target.value,
                           })
                         }
-                        placeholder="Category"
+                        placeholder={t("bible.category")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -527,7 +527,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             status: event.target.value,
                           })
                         }
-                        placeholder="Status"
+                        placeholder={t("bible.status")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                     </div>
@@ -540,7 +540,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                           description: event.target.value,
                         })
                       }
-                      placeholder="Description"
+                      placeholder={t("bible.description")}
                       className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm"
                     />
                   </div>
@@ -566,7 +566,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   }
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                 >
-                  Add timeline event
+                  {t("bible.addTimeline")}
                 </button>
               </div>
               <div className="mt-3 space-y-2">
@@ -585,7 +585,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             label: e.target.value,
                           })
                         }
-                        placeholder="Event label"
+                        placeholder={t("bible.eventLabel")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -596,7 +596,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             details: e.target.value,
                           })
                         }
-                        placeholder="Details"
+                        placeholder={t("bible.details")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -607,7 +607,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             impact: e.target.value,
                           })
                         }
-                        placeholder="Impact"
+                        placeholder={t("bible.impact")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <button
@@ -628,7 +628,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   onClick={addBlankRelationship}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                 >
-                  Add relationship
+                  {t("bible.addRelationship")}
                 </button>
               </div>
               <div className="mt-3 space-y-3">
@@ -646,10 +646,10 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="character">Character</option>
-                        <option value="location">Location</option>
-                        <option value="lore">Lore</option>
-                        <option value="timeline_event">Timeline</option>
+                        <option value="character">{t("bible.typeCharacter")}</option>
+                        <option value="location">{t("bible.typeLocation")}</option>
+                        <option value="lore">{t("bible.typeLore")}</option>
+                        <option value="timeline_event">{t("bible.typeTimeline")}</option>
                       </select>
                       <select
                         value={relationship.sourceId}
@@ -661,7 +661,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="">Select source</option>
+                        <option value="">{t("bible.selectSource")}</option>
                         {trackedEntityOptions
                           .filter((option) => option.type === relationship.sourceType)
                           .map((option) => (
@@ -681,10 +681,10 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="character">Character</option>
-                        <option value="location">Location</option>
-                        <option value="lore">Lore</option>
-                        <option value="timeline_event">Timeline</option>
+                        <option value="character">{t("bible.typeCharacter")}</option>
+                        <option value="location">{t("bible.typeLocation")}</option>
+                        <option value="lore">{t("bible.typeLore")}</option>
+                        <option value="timeline_event">{t("bible.typeTimeline")}</option>
                       </select>
                       <select
                         value={relationship.targetId}
@@ -696,7 +696,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="">Select target</option>
+                        <option value="">{t("bible.selectTarget")}</option>
                         {trackedEntityOptions
                           .filter((option) => option.type === relationship.targetType)
                           .map((option) => (
@@ -713,7 +713,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             relationType: event.target.value,
                           })
                         }
-                        placeholder="Relation type"
+                        placeholder={t("bible.relationType")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -745,7 +745,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             status: event.target.value,
                           })
                         }
-                        placeholder="Status"
+                        placeholder={t("bible.status")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -756,7 +756,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             notes: event.target.value,
                           })
                         }
-                        placeholder="Evolution notes"
+                        placeholder={t("bible.evolutionNotes")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                     </div>
@@ -772,7 +772,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   onClick={addBlankProgression}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                 >
-                  Add progression entry
+                  {t("bible.addProgression")}
                 </button>
               </div>
               <p className="mt-2 text-sm text-slate-600">
@@ -794,10 +794,10 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="character">Character</option>
-                        <option value="location">Location</option>
-                        <option value="lore">Lore</option>
-                        <option value="timeline_event">Timeline</option>
+                        <option value="character">{t("bible.typeCharacter")}</option>
+                        <option value="location">{t("bible.typeLocation")}</option>
+                        <option value="lore">{t("bible.typeLore")}</option>
+                        <option value="timeline_event">{t("bible.typeTimeline")}</option>
                       </select>
                       <select
                         value={entry.entityId}
@@ -811,7 +811,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="">Select entity</option>
+                        <option value="">{t("bible.selectEntity")}</option>
                         {trackedEntityOptions
                           .filter((option) => option.type === entry.entityType)
                           .map((option) => (
@@ -831,7 +831,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="">Story-level</option>
+                        <option value="">{t("bible.storyLevel")}</option>
                         {activeProject.chapters.map((chapter) => (
                           <option key={chapter.id} value={chapter.id}>
                             {chapterLabel(chapter)}
@@ -848,7 +848,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       >
-                        <option value="">No scene</option>
+                        <option value="">{t("bible.noScene")}</option>
                         {activeProject.scenes
                           .filter((scene) => !entry.chapterId || scene.chapterId === entry.chapterId)
                           .map((scene) => (
@@ -874,7 +874,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             startState: event.target.value,
                           })
                         }
-                        placeholder="Start state"
+                        placeholder={t("bible.startState")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <textarea
@@ -886,7 +886,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             endState: event.target.value,
                           })
                         }
-                        placeholder="End state"
+                        placeholder={t("bible.endState")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <textarea
@@ -898,7 +898,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             evidence: event.target.value,
                           })
                         }
-                        placeholder="Evidence"
+                        placeholder={t("bible.evidence")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <textarea
@@ -910,7 +910,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             proposedDelta: event.target.value,
                           })
                         }
-                        placeholder="Proposed delta"
+                        placeholder={t("bible.proposedDelta")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <textarea
@@ -922,7 +922,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             validatedDelta: event.target.value,
                           })
                         }
-                        placeholder="Validated delta"
+                        placeholder={t("bible.validatedDelta")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <textarea
@@ -934,7 +934,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             aiSuggestion: event.target.value,
                           })
                         }
-                        placeholder="AI fix suggestion"
+                        placeholder={t("bible.aiFix")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -945,7 +945,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             knowledge: event.target.value,
                           })
                         }
-                        placeholder="Knowledge"
+                        placeholder={t("bible.knowledge")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -956,7 +956,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             belief: event.target.value,
                           })
                         }
-                        placeholder="Belief"
+                        placeholder={t("bible.belief")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <input
@@ -967,7 +967,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                             inventory: event.target.value,
                           })
                         }
-                        placeholder="Inventory"
+                        placeholder={t("bible.inventory")}
                         className="rounded border border-slate-300 px-2 py-1 text-sm"
                       />
                       <div className="grid gap-2 sm:grid-cols-[1fr_180px]">
@@ -979,7 +979,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                               narrationStatus: event.target.value,
                             })
                           }
-                          placeholder="Narration status"
+                          placeholder={t("bible.narrationStatus")}
                           className="rounded border border-slate-300 px-2 py-1 text-sm"
                         />
                         <select
