@@ -6,6 +6,7 @@ import { SelectedChapterDetailsCard } from "../SelectedChapterDetailsCard";
 
 export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
   const {
+    t,
     project,
     activeProject,
     saveProjectMeta,
@@ -28,7 +29,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
   return (
           <section className="grid gap-4 lg:grid-cols-2">
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Project metadata</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("plan.metadata")}</h2>
               <div className="mt-4 grid gap-3">
                 <label className="grid gap-1 text-sm text-slate-700">
                   Title
@@ -59,9 +60,9 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Continuity conflicts</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("plan.continuity")}</h2>
               {continuityConflicts.length === 0 ? (
-                <p className="mt-3 text-sm text-emerald-700">No continuity conflicts detected.</p>
+                <p className="mt-3 text-sm text-emerald-700">{t("plan.noContinuity")}</p>
               ) : (
                 <ul className="mt-3 space-y-2">
                   {continuityConflicts.map((conflict) => (
@@ -77,11 +78,11 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
-              <h2 className="text-xl font-semibold text-slate-900">Writing goals & progress</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("plan.goals")}</h2>
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
                 <div>
                   <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="text-slate-700">Written today</span>
+                    <span className="text-slate-700">{t("plan.writtenToday")}</span>
                     <span className="font-semibold text-slate-900">
                       {wordsToday.toLocaleString()} / {activeProject.goal.dailyWords.toLocaleString()} words
                     </span>
@@ -106,7 +107,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                     />
                   </div>
                   <div className="flex items-center justify-between text-sm text-slate-700">
-                    <span>Manuscript progress</span>
+                    <span>{t("plan.manuscriptProgress")}</span>
                     <span className="font-semibold">
                       {manuscriptWordCount.toLocaleString()} / {project.targetWordCount.toLocaleString()} words
                     </span>
@@ -163,10 +164,10 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                 </div>
                 <div className="grid gap-2 self-start rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Targets
+                    {t("plan.targets")}
                   </p>
                   <label className="grid gap-1 text-sm text-slate-700">
-                    Daily words
+                    {t("plan.dailyWords")}
                     <input
                       type="number"
                       min={0}
@@ -181,7 +182,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                     />
                   </label>
                   <label className="grid gap-1 text-sm text-slate-700">
-                    Session words
+                    {t("plan.sessionWords")}
                     <input
                       type="number"
                       min={0}
@@ -196,7 +197,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                     />
                   </label>
                   <label className="grid gap-1 text-sm text-slate-700">
-                    Default chapter words
+                    {t("plan.defaultChapterWords")}
                     <input
                       type="number"
                       min={0}
@@ -210,22 +211,19 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                       className="rounded border border-slate-300 px-2 py-1"
                     />
                   </label>
-                  <p className="text-xs text-slate-500">
-                    The chapter bar uses the chapter word target when set, otherwise the default
-                    chapter goal.
-                  </p>
+                  <p className="text-xs text-slate-500">{t("plan.chapterBarHelp")}</p>
                 </div>
               </div>
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-slate-900">Chapter structure</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("plan.chapterStructure")}</h2>
                 <button
                   onClick={() => void addChapter()}
                   className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
                 >
-                  Add chapter
+                  {t("plan.addChapter")}
                 </button>
               </div>
 
@@ -233,7 +231,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                 <div className="space-y-3">
                   {activeProject.chapters.length === 0 && (
                     <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-                      This project starts with an empty structure. Add chapters only where you need them.
+                      {t("plan.emptyStructure")}
                     </div>
                   )}
 
@@ -286,7 +284,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                                     : "border border-slate-300 text-slate-700"
                                 }`}
                               >
-                                {chapter.aiLocked ? "AI Locked" : "AI Unlocked"}
+                                {chapter.aiLocked ? t("plan.aiLocked") : t("plan.aiUnlocked")}
                               </button>
                               <button
                                 onClick={() => void createManualScene(chapter.id)}
@@ -306,7 +304,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
 
                           <div className="space-y-1 pl-3">
                             {scenes.length === 0 && (
-                              <p className="text-xs text-slate-500">No scenes in this chapter yet.</p>
+                              <p className="text-xs text-slate-500">{t("plan.noScenes")}</p>
                             )}
                             {scenes
                               .sort((a, b) => a.order - b.order)

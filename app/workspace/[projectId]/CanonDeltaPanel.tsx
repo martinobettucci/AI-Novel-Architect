@@ -1,6 +1,7 @@
 "use client";
 
 import type { CanonDelta, DetectionStrength, VerifierVerdict } from "@/app/domain/models";
+import { useI18n } from "@/app/i18n/I18nProvider";
 import type { WorkspaceController } from "./useWorkspaceController";
 
 const CONFIDENCE_LABEL: Record<DetectionStrength, string> = {
@@ -113,6 +114,7 @@ function DeltaCard({
 }
 
 export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
+  const { t } = useI18n();
   const {
     selectedChapter,
     selectedChapterDeltas,
@@ -132,7 +134,7 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
     <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Canon deltas</h3>
+          <h3 className="text-lg font-semibold text-slate-900">{t("drafting.canonDeltas")}</h3>
           <p className="text-sm text-slate-600">
             Structured, evidence-backed change proposals. Canon only mutates when you validate
             one. Validated: {validated} · Rejected: {rejected}.
@@ -143,7 +145,7 @@ export function CanonDeltaPanel({ ctx }: { ctx: WorkspaceController }) {
           disabled={deltaAiStatus === "running"}
           className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {deltaAiStatus === "running" ? "Analyzing…" : "Analyze chapter → propose deltas"}
+          {deltaAiStatus === "running" ? "…" : t("drafting.analyzeChapter")}
         </button>
       </div>
 

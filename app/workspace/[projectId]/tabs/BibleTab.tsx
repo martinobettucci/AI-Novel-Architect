@@ -7,6 +7,7 @@ import type { WorkspaceController } from "../useWorkspaceController";
 
 export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
   const {
+    t,
     activeProject,
     suggestStoryBible,
     storyBibleAiStatus,
@@ -54,21 +55,21 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
           <section className="grid gap-4 lg:grid-cols-2">
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-xl font-semibold text-slate-900">Story Bible</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.title")}</h2>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => void suggestStoryBible()}
                     disabled={storyBibleAiStatus === "running"}
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
                   >
-                    {storyBibleAiStatus === "running" ? "Suggesting..." : "AI suggest core"}
+                    {storyBibleAiStatus === "running" ? "…" : t("bible.aiSuggestCore")}
                   </button>
                   <button
                     onClick={() => void suggestStoryWorldScaffold()}
                     disabled={storyWorldAiStatus === "running"}
                     className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-40"
                   >
-                    {storyWorldAiStatus === "running" ? "Scaffolding..." : "AI suggest world"}
+                    {storyWorldAiStatus === "running" ? "…" : t("bible.aiSuggestWorld")}
                   </button>
                 </div>
               </div>
@@ -257,7 +258,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-semibold text-slate-900">Entity history timelines</h2>
+                  <h2 className="text-xl font-semibold text-slate-900">{t("bible.entityHistory")}</h2>
                   <p className="mt-1 text-sm text-slate-600">
                     Story-wide entities stay global here. Their chapter-by-chapter history is tracked in a parallel timeline store and visualized below.
                   </p>
@@ -341,7 +342,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Characters</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("bible.characters")}</h2>
               <button
                 onClick={() =>
                   void saveCharacter({
@@ -402,7 +403,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold text-slate-900">Locations</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.locations")}</h2>
                 <button
                   onClick={addBlankLocation}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
@@ -475,7 +476,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold text-slate-900">Lore</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.lore")}</h2>
                 <button
                   onClick={addBlankLoreEntry}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
@@ -548,7 +549,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold text-slate-900">Timeline</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.timeline")}</h2>
                 <button
                   onClick={() =>
                     void saveTimelineEventAction({
@@ -621,7 +622,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold text-slate-900">Relationships</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.relationships")}</h2>
                 <button
                   onClick={addBlankRelationship}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
@@ -765,7 +766,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-semibold text-slate-900">Entity progression tracker</h2>
+                <h2 className="text-xl font-semibold text-slate-900">{t("bible.progressionTracker")}</h2>
                 <button
                   onClick={addBlankProgression}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
@@ -1004,7 +1005,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
-              <h2 className="text-xl font-semibold text-slate-900">Progression overview</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("bible.progressionOverview")}</h2>
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 {progressionByEntity.map((group) => (
                   <div key={group.key} className="rounded-lg border border-slate-200 p-3">

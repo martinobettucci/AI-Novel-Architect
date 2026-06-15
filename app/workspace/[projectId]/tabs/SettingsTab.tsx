@@ -6,6 +6,7 @@ import type { WorkspaceController } from "../useWorkspaceController";
 
 export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
   const {
+    t,
     activeProject,
     resolved,
     saveScope,
@@ -18,10 +19,10 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
   return (
           <section className="grid gap-4 lg:grid-cols-2">
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Model configuration</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("settings.modelConfig")}</h2>
               <div className="mt-3 grid gap-2">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Base URL
+                  {t("settings.baseUrl")}
                   <input
                     value={resolved.settings.llm.baseUrl}
                     onChange={(event) =>
@@ -40,7 +41,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Model
+                  {t("settings.model")}
                   <input
                     value={resolved.settings.llm.model}
                     onChange={(event) =>
@@ -59,7 +60,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  API key (optional)
+                  {t("settings.apiKey")}
                   <input
                     type="password"
                     autoComplete="off"
@@ -83,10 +84,10 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Prompt + QA settings</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("settings.promptQa")}</h2>
               <div className="mt-3 grid gap-2">
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Writing language
+                  {t("settings.writingLanguage")}
                   <select
                     value={resolved.settings.locale}
                     onChange={(event) =>
@@ -105,7 +106,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                   </select>
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Tone guide
+                  {t("settings.toneGuide")}
                   <textarea
                     rows={2}
                     value={resolved.settings.prompts.toneGuide}
@@ -125,7 +126,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                   />
                 </label>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  Structure weight
+                  {t("settings.structureWeight")}
                   <input
                     type="number"
                     min={0}
@@ -152,27 +153,27 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
               </div>
 
               <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                <p className="font-semibold text-slate-900">Precedence</p>
+                <p className="font-semibold text-slate-900">{t("settings.precedence")}</p>
                 <p>{resolved.sourceOrder.join(" -> ")}</p>
                 <div className="mt-2 flex gap-2">
                   <button
                     onClick={() => void resetScope("project", projectIdValue)}
                     className="rounded border border-slate-300 px-2 py-1"
                   >
-                    Reset project scope
+                    {t("settings.resetProject")}
                   </button>
                   <button
                     onClick={() => void resetScope("feature", projectIdValue, "drafting")}
                     className="rounded border border-slate-300 px-2 py-1"
                   >
-                    Reset drafting feature scope
+                    {t("settings.resetDrafting")}
                   </button>
                 </div>
               </div>
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
-              <h2 className="text-xl font-semibold text-slate-900">Snapshots & recovery</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("settings.snapshots")}</h2>
               <ul className="mt-3 space-y-2">
                 {activeProject.snapshots.map((snapshot) => (
                   <li key={snapshot.id} className="flex items-center justify-between rounded border border-slate-200 p-2 text-sm">
@@ -183,7 +184,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                       onClick={() => void restoreSnapshot(snapshot.id)}
                       className="rounded border border-slate-300 px-2 py-1 text-xs"
                     >
-                      Restore
+                      {t("settings.restore")}
                     </button>
                   </li>
                 ))}

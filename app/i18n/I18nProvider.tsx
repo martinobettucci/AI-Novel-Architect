@@ -2,12 +2,12 @@
 
 import { createContext, useContext, useMemo } from "react";
 import type { Locale } from "@/app/domain/models";
-import type { MessageKey } from "@/app/i18n/messages";
+import type { MessageKey, MessageParams } from "@/app/i18n/messages";
 import { translate } from "@/app/i18n/messages";
 
 interface I18nContextValue {
   locale: Locale;
-  t: (key: MessageKey) => string;
+  t: (key: MessageKey, params?: MessageParams) => string;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -22,7 +22,7 @@ export function I18nProvider({
   const value = useMemo<I18nContextValue>(
     () => ({
       locale,
-      t: (key) => translate(locale, key),
+      t: (key, params) => translate(locale, key, params),
     }),
     [locale]
   );
@@ -35,7 +35,7 @@ export function useI18n(): I18nContextValue {
   if (!context) {
     return {
       locale: "fr",
-      t: (key) => translate("fr", key),
+      t: (key, params) => translate("fr", key, params),
     };
   }
   return context;

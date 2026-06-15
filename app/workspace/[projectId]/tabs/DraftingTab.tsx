@@ -12,6 +12,7 @@ import { CanonDeltaPanel } from "../CanonDeltaPanel";
 
 export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
   const {
+    t,
     activeProject,
     mainClass,
     setOutlineSearchVisible,
@@ -88,7 +89,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
   return (
           <section className={mainClass}>
             <aside className="rounded-2xl border border-slate-200 bg-white/90 p-4">
-              <h2 className="text-lg font-semibold text-slate-900">Outline</h2>
+              <h2 className="text-lg font-semibold text-slate-900">{t("drafting.outline")}</h2>
               <button
                 onClick={() => setOutlineSearchVisible((current) => !current)}
                 className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
@@ -338,9 +339,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">
-                          Chapter draft studio
-                        </h3>
+<h3 className="text-lg font-semibold text-slate-900">{t("drafting.draftStudio")}</h3>
                         <p className="text-sm text-slate-600">
                           Write directly in the editor below or generate a full chapter draft from
                           the story bible, tracked entities, relationships, progression history,
@@ -473,7 +472,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-900">Scene cards</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">{t("drafting.sceneCards")}</h3>
                         <p className="text-xs text-slate-500">
                           Build scenes manually or let AI propose a sequence for the selected chapter.
                         </p>
@@ -772,7 +771,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   </div>
 
                   <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3">
-                    <h3 className="text-sm font-semibold text-slate-900">Specialized assistants</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">{t("drafting.specializedAssistants")}</h3>
                     <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                       {ASSISTANTS.map((assistant) => (
                         <button
@@ -909,7 +908,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   </div>
 
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <h3 className="text-sm font-semibold text-slate-900">Annotations</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">{t("drafting.annotations")}</h3>
                     <button
                       onClick={() =>
                         void saveAnnotation({

@@ -31,7 +31,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       <div className="min-h-screen">
         <TopNav />
         <main className="mx-auto max-w-4xl px-4 py-8 text-sm text-slate-600">
-          Loading workspace…
+          {ctx.t("workspace.loading")}
         </main>
       </div>
     );
@@ -47,7 +47,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             role="alert"
             className="mb-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800"
           >
-            Save failed: {storeError}. The view was reloaded from the last persisted state.
+            {t("workspace.saveFailed", { error: storeError })}
           </div>
         )}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/90 p-4">
@@ -55,24 +55,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("nav.workspace")}</p>
             <h1 className="text-2xl font-bold text-slate-900">{project.title}</h1>
             <p className="text-sm text-slate-600">
-              {project.genre} · {project.audience} · {project.targetWordCount.toLocaleString()} words target
+              {t("workspace.metaLine", {
+                genre: project.genre,
+                audience: project.audience,
+                target: project.targetWordCount.toLocaleString(),
+              })}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className={`rounded-full px-2 py-1 font-semibold ${offline ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
-              {offline ? "Offline" : "Online"}
+              {offline ? t("workspace.offline") : t("workspace.online")}
             </span>
             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-              Queued AI tasks: {pendingAiCount}
+              {t("workspace.queuedAi", { count: pendingAiCount })}
             </span>
             {proposedDeltaCount > 0 && (
               <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-800">
-                {proposedDeltaCount} delta{proposedDeltaCount > 1 ? "s" : ""} to review
+                {t("workspace.deltasToReview", { count: proposedDeltaCount })}
               </span>
             )}
             <Link href="/" className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50">
-              Back to dashboard
+              {t("workspace.back")}
             </Link>
           </div>
         </div>
@@ -80,7 +84,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         <div className="mb-4 flex flex-wrap gap-2">
           {TABS.map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={tabClass(activeTab === tab.id)}>
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>

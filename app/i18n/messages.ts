@@ -1,92 +1,323 @@
 import type { Locale } from "@/app/domain/models";
 
-export type MessageKey =
-  | "app.title"
-  | "nav.dashboard"
-  | "nav.settings"
-  | "nav.workspace"
-  | "dashboard.title"
-  | "dashboard.subtitle"
-  | "dashboard.create"
-  | "workspace.plan"
-  | "workspace.bible"
-  | "workspace.drafting"
-  | "workspace.revision"
-  | "workspace.publish"
-  | "workspace.marketing"
-  | "workspace.settings"
-  | "common.save"
-  | "common.cancel"
-  | "common.delete"
-  | "common.duplicate"
-  | "common.archive"
-  | "common.restore"
-  | "common.language"
-  | "common.uiLanguage"
-  | "common.writingLanguage"
-  | "common.french"
-  | "common.english"
-  | "settings.title";
-
-const fr: Record<MessageKey, string> = {
+// French is the source-of-truth dictionary; the MessageKey type is derived from
+// it, so the English map must cover exactly the same keys (enforced by the type
+// annotation on `en`). Values may contain {placeholders} replaced at runtime.
+const fr = {
   "app.title": "AI Novel Architect",
   "nav.dashboard": "Tableau de bord",
   "nav.settings": "Paramètres",
   "nav.workspace": "Espace projet",
+
   "dashboard.title": "Projets d'écriture",
   "dashboard.subtitle": "Créez, rédigez, révisez, publiez et lancez vos romans en local.",
   "dashboard.create": "Nouveau projet",
-  "workspace.plan": "Plan",
-  "workspace.bible": "Story Bible",
-  "workspace.drafting": "Rédaction",
-  "workspace.revision": "Révision",
-  "workspace.publish": "Publication",
-  "workspace.marketing": "Marketing",
-  "workspace.settings": "Réglages",
+  "dashboard.importFile": "Importer JSON/MD/TXT",
+  "dashboard.restoreBackup": "Restaurer une sauvegarde",
+  "dashboard.loading": "Chargement des projets…",
+  "dashboard.empty": "Aucun projet pour l'instant. Créez-en un pour démarrer le flux d'écriture de bout en bout.",
+  "dashboard.audienceLine": "Public : {audience} · Ton : {tone} · Objectif : {target} mots",
+  "dashboard.openWorkspace": "Ouvrir l'espace",
+  "dashboard.exportBackup": "Exporter / Sauvegarder",
+  "dashboard.archivedTitle": "Projets archivés",
+  "dashboard.archivedSubtitle": "Les manuscrits archivés restent stockés en local. Restaurez-en un pour reprendre le travail.",
+  "dashboard.archivedMeta": "{genre} · objectif {target} mots",
+  "dashboard.createTitle": "Créer un projet",
+  "dashboard.createSubtitle": "Partez d'une idée, d'un plan détaillé ou d'un modèle. Tous les modes utilisent une logique réelle et persistée.",
+  "dashboard.titleRequired": "Le titre du projet est obligatoire.",
+  "dashboard.fieldGenre": "Genre",
+  "dashboard.fieldAudience": "Public",
+  "dashboard.fieldTone": "Ton",
+  "dashboard.fieldTargetWords": "Objectif de mots",
+  "dashboard.fieldChapterShells": "Chapitres initiaux",
+  "dashboard.chapterShellsHelp": "Laissez à 0 pour démarrer vide. Le mode plan peut déduire les chapitres de votre plan.",
+  "dashboard.fieldSynopsis": "Synopsis",
+  "dashboard.fieldOutline": "Texte du plan (un chapitre par ligne)",
+  "dashboard.createAndOpen": "Créer et ouvrir",
+  "dashboard.deleteConfirm": "Supprimer « {title} » définitivement ? Cela retire le manuscrit, la bible et tout l'historique local. Exportez une sauvegarde si vous avez un doute.",
+  "dashboard.importFailed": "Échec de l'import : {error}",
+  "dashboard.backupFailed": "Échec de la restauration : {error}",
+
+  "workspace.online": "En ligne",
+  "workspace.offline": "Hors ligne",
+  "workspace.queuedAi": "Tâches IA en file : {count}",
+  "workspace.deltasToReview": "{count} delta(s) à valider",
+  "workspace.back": "Retour au tableau de bord",
+  "workspace.loading": "Chargement de l'espace…",
+  "workspace.saveFailed": "Échec de l'enregistrement : {error}. La vue a été rechargée depuis le dernier état enregistré.",
+  "workspace.metaLine": "{genre} · {audience} · objectif {target} mots",
+
+  "tab.plan": "Plan",
+  "tab.bible": "Story Bible",
+  "tab.drafting": "Rédaction",
+  "tab.revision": "Révision",
+  "tab.publish": "Publication",
+  "tab.marketing": "Marketing",
+  "tab.settings": "Réglages",
+
+  "plan.metadata": "Métadonnées du projet",
+  "plan.continuity": "Conflits de continuité",
+  "plan.noContinuity": "Aucun conflit de continuité détecté.",
+  "plan.goals": "Objectifs & progression d'écriture",
+  "plan.writtenToday": "Écrit aujourd'hui",
+  "plan.manuscriptProgress": "Progression du manuscrit",
+  "plan.wordsPair": "{current} / {target} mots",
+  "plan.targets": "Cibles",
+  "plan.dailyWords": "Mots / jour",
+  "plan.sessionWords": "Mots / session",
+  "plan.defaultChapterWords": "Mots / chapitre par défaut",
+  "plan.chapterBarHelp": "La barre du chapitre utilise l'objectif du chapitre si défini, sinon l'objectif par défaut.",
+  "plan.chapterStructure": "Structure des chapitres",
+  "plan.addChapter": "Ajouter un chapitre",
+  "plan.emptyStructure": "Ce projet démarre avec une structure vide. Ajoutez des chapitres seulement là où vous en avez besoin.",
+  "plan.noScenes": "Aucune scène dans ce chapitre.",
+  "plan.aiLocked": "IA verrouillée",
+  "plan.aiUnlocked": "IA déverrouillée",
+  "plan.addScene": "Ajouter une scène",
+
+  "publish.title": "Artefacts de publication",
+  "publish.subtitle": "Aucune intégration de plateforme externe. Uniquement des artefacts locaux prêts à l'export.",
+  "publish.exportPack": "Exporter le pack de publication",
+  "publish.exportJson": "Exporter JSON",
+  "publish.exportMarkdown": "Exporter Markdown",
+  "publish.exportBackup": "Exporter la sauvegarde",
+  "publish.metadataSheet": "Fiche de métadonnées",
+  "publish.chapterManifest": "Manifeste des chapitres",
+
+  "marketing.title": "Boîte à outils marketing",
+  "marketing.exportPack": "Exporter le pack marketing",
+  "marketing.copyBlurb": "Copier le résumé",
+  "marketing.blurbTagline": "Résumé + accroche",
+  "marketing.coverChecklist": "Brief de couverture + checklist de lancement",
+
+  "revision.issues": "Problèmes de révision",
+  "revision.addIssue": "Ajouter un problème",
+  "revision.statusOpen": "Ouvert",
+  "revision.statusInProgress": "En cours",
+  "revision.statusResolved": "Résolu",
+  "revision.quality": "Contrôles qualité",
+  "revision.rubric": "Pondérations : structure {structure}% · personnage {character}% · rythme {pacing}% · style {style}%",
+  "revision.currentScore": "Score du chapitre courant :",
+  "revision.track": "Suivre",
+  "revision.checklists": "Checklists",
+  "revision.checklistCompletion": "Révision : {revision}% · Publication : {publish}%",
+  "revision.addCustomItem": "Ajouter un élément",
+
+  "settings.title": "Paramètres globaux",
+  "settings.modelConfig": "Configuration du modèle",
+  "settings.baseUrl": "URL de base",
+  "settings.model": "Modèle",
+  "settings.apiKey": "Clé API (optionnelle)",
+  "settings.promptQa": "Prompts + QA",
+  "settings.writingLanguage": "Langue d'écriture",
+  "settings.toneGuide": "Guide de ton",
+  "settings.structureWeight": "Poids de la structure",
+  "settings.precedence": "Précédence",
+  "settings.resetProject": "Réinitialiser le périmètre projet",
+  "settings.resetDrafting": "Réinitialiser le périmètre rédaction",
+  "settings.snapshots": "Instantanés & récupération",
+  "settings.restore": "Restaurer",
+  "settings.provenance": "Activité IA & provenance",
+  "settings.provenanceSubtitle": "Chaque appel IA et chaque changement de canon validé est journalisé ici avec son modèle, ses entrées et ses sorties — la piste d'audit du projet.",
+  "settings.noActivity": "Aucune activité IA enregistrée.",
+
+  "bible.title": "Story Bible",
+  "bible.aiSuggestCore": "IA : proposer le cœur",
+  "bible.aiSuggestWorld": "IA : proposer le monde",
+  "bible.characters": "Personnages",
+  "bible.locations": "Lieux",
+  "bible.lore": "Lore",
+  "bible.timeline": "Chronologie",
+  "bible.relationships": "Relations",
+  "bible.entityHistory": "Frises d'historique des entités",
+  "bible.progressionTracker": "Suivi de progression des entités",
+  "bible.progressionOverview": "Aperçu de la progression",
+
+  "drafting.outline": "Plan",
+  "drafting.canonDeltas": "Deltas de canon",
+  "drafting.analyzeChapter": "Analyser le chapitre → proposer des deltas",
+  "drafting.draftStudio": "Studio de rédaction",
+  "drafting.sceneCards": "Cartes de scènes",
+  "drafting.specializedAssistants": "Assistants spécialisés",
+  "drafting.annotations": "Annotations",
+
   "common.save": "Sauvegarder",
   "common.cancel": "Annuler",
   "common.delete": "Supprimer",
   "common.duplicate": "Dupliquer",
   "common.archive": "Archiver",
   "common.restore": "Restaurer",
+  "common.add": "Ajouter",
   "common.language": "Langue",
   "common.uiLanguage": "Langue de l'interface",
   "common.writingLanguage": "Langue d'écriture",
   "common.french": "Français",
   "common.english": "Anglais",
-  "settings.title": "Paramètres globaux",
-};
+} as const;
+
+export type MessageKey = keyof typeof fr;
 
 const en: Record<MessageKey, string> = {
   "app.title": "AI Novel Architect",
   "nav.dashboard": "Dashboard",
   "nav.settings": "Settings",
   "nav.workspace": "Workspace",
+
   "dashboard.title": "Writing Projects",
   "dashboard.subtitle": "Create, draft, revise, publish, and launch your novels locally.",
   "dashboard.create": "New project",
-  "workspace.plan": "Plan",
-  "workspace.bible": "Story Bible",
-  "workspace.drafting": "Drafting",
-  "workspace.revision": "Revision",
-  "workspace.publish": "Publishing",
-  "workspace.marketing": "Marketing",
-  "workspace.settings": "Settings",
+  "dashboard.importFile": "Import JSON/MD/TXT",
+  "dashboard.restoreBackup": "Restore backup",
+  "dashboard.loading": "Loading projects…",
+  "dashboard.empty": "No project yet. Create one to start the end-to-end writing workflow.",
+  "dashboard.audienceLine": "Audience: {audience} · Tone: {tone} · Target: {target} words",
+  "dashboard.openWorkspace": "Open Workspace",
+  "dashboard.exportBackup": "Export/Backup",
+  "dashboard.archivedTitle": "Archived projects",
+  "dashboard.archivedSubtitle": "Archived manuscripts stay stored locally. Restore one to keep working on it.",
+  "dashboard.archivedMeta": "{genre} · {target} words target",
+  "dashboard.createTitle": "Create Project",
+  "dashboard.createSubtitle": "Start from idea, detailed outline, or template. All flows use real persisted logic.",
+  "dashboard.titleRequired": "Project title is required.",
+  "dashboard.fieldGenre": "Genre",
+  "dashboard.fieldAudience": "Audience",
+  "dashboard.fieldTone": "Tone",
+  "dashboard.fieldTargetWords": "Target words",
+  "dashboard.fieldChapterShells": "Initial chapter shells",
+  "dashboard.chapterShellsHelp": "Leave at 0 to start empty. Outline mode can still derive chapters from your outline.",
+  "dashboard.fieldSynopsis": "Synopsis",
+  "dashboard.fieldOutline": "Outline text (one chapter per line)",
+  "dashboard.createAndOpen": "Create and Open",
+  "dashboard.deleteConfirm": "Delete \"{title}\" permanently? This removes the manuscript, story bible, and all local history. Export a backup first if you are unsure.",
+  "dashboard.importFailed": "Import failed: {error}",
+  "dashboard.backupFailed": "Backup restore failed: {error}",
+
+  "workspace.online": "Online",
+  "workspace.offline": "Offline",
+  "workspace.queuedAi": "Queued AI tasks: {count}",
+  "workspace.deltasToReview": "{count} delta(s) to review",
+  "workspace.back": "Back to dashboard",
+  "workspace.loading": "Loading workspace…",
+  "workspace.saveFailed": "Save failed: {error}. The view was reloaded from the last persisted state.",
+  "workspace.metaLine": "{genre} · {audience} · {target} words target",
+
+  "tab.plan": "Plan",
+  "tab.bible": "Story Bible",
+  "tab.drafting": "Drafting",
+  "tab.revision": "Revision",
+  "tab.publish": "Publishing",
+  "tab.marketing": "Marketing",
+  "tab.settings": "Settings",
+
+  "plan.metadata": "Project metadata",
+  "plan.continuity": "Continuity conflicts",
+  "plan.noContinuity": "No continuity conflicts detected.",
+  "plan.goals": "Writing goals & progress",
+  "plan.writtenToday": "Written today",
+  "plan.manuscriptProgress": "Manuscript progress",
+  "plan.wordsPair": "{current} / {target} words",
+  "plan.targets": "Targets",
+  "plan.dailyWords": "Daily words",
+  "plan.sessionWords": "Session words",
+  "plan.defaultChapterWords": "Default chapter words",
+  "plan.chapterBarHelp": "The chapter bar uses the chapter word target when set, otherwise the default chapter goal.",
+  "plan.chapterStructure": "Chapter structure",
+  "plan.addChapter": "Add chapter",
+  "plan.emptyStructure": "This project starts with an empty structure. Add chapters only where you need them.",
+  "plan.noScenes": "No scenes in this chapter yet.",
+  "plan.aiLocked": "AI Locked",
+  "plan.aiUnlocked": "AI Unlocked",
+  "plan.addScene": "Add scene",
+
+  "publish.title": "Publishing artifacts",
+  "publish.subtitle": "No external platform integration. Export-ready local artifacts only.",
+  "publish.exportPack": "Export publish artifact pack",
+  "publish.exportJson": "Export JSON",
+  "publish.exportMarkdown": "Export Markdown",
+  "publish.exportBackup": "Export Backup",
+  "publish.metadataSheet": "Metadata sheet",
+  "publish.chapterManifest": "Chapter manifest",
+
+  "marketing.title": "Marketing toolkit",
+  "marketing.exportPack": "Export marketing pack",
+  "marketing.copyBlurb": "Copy blurb",
+  "marketing.blurbTagline": "Blurb + tagline",
+  "marketing.coverChecklist": "Cover brief + launch checklist",
+
+  "revision.issues": "Revision issues",
+  "revision.addIssue": "Add issue",
+  "revision.statusOpen": "Open",
+  "revision.statusInProgress": "In progress",
+  "revision.statusResolved": "Resolved",
+  "revision.quality": "Quality checks",
+  "revision.rubric": "Rubric weights: structure {structure}% · character {character}% · pacing {pacing}% · style {style}%",
+  "revision.currentScore": "Current chapter score:",
+  "revision.track": "Track",
+  "revision.checklists": "Checklists",
+  "revision.checklistCompletion": "Revision: {revision}% · Publish: {publish}%",
+  "revision.addCustomItem": "Add custom item",
+
+  "settings.title": "Global settings",
+  "settings.modelConfig": "Model configuration",
+  "settings.baseUrl": "Base URL",
+  "settings.model": "Model",
+  "settings.apiKey": "API key (optional)",
+  "settings.promptQa": "Prompt + QA settings",
+  "settings.writingLanguage": "Writing language",
+  "settings.toneGuide": "Tone guide",
+  "settings.structureWeight": "Structure weight",
+  "settings.precedence": "Precedence",
+  "settings.resetProject": "Reset project scope",
+  "settings.resetDrafting": "Reset drafting feature scope",
+  "settings.snapshots": "Snapshots & recovery",
+  "settings.restore": "Restore",
+  "settings.provenance": "AI activity & provenance",
+  "settings.provenanceSubtitle": "Every AI call and every validated canon change is logged here with its model, inputs, and outputs — the audit trail behind the project state.",
+  "settings.noActivity": "No AI activity recorded yet.",
+
+  "bible.title": "Story Bible",
+  "bible.aiSuggestCore": "AI suggest core",
+  "bible.aiSuggestWorld": "AI suggest world",
+  "bible.characters": "Characters",
+  "bible.locations": "Locations",
+  "bible.lore": "Lore",
+  "bible.timeline": "Timeline",
+  "bible.relationships": "Relationships",
+  "bible.entityHistory": "Entity history timelines",
+  "bible.progressionTracker": "Entity progression tracker",
+  "bible.progressionOverview": "Progression overview",
+
+  "drafting.outline": "Outline",
+  "drafting.canonDeltas": "Canon deltas",
+  "drafting.analyzeChapter": "Analyze chapter → propose deltas",
+  "drafting.draftStudio": "Chapter draft studio",
+  "drafting.sceneCards": "Scene cards",
+  "drafting.specializedAssistants": "Specialized assistants",
+  "drafting.annotations": "Annotations",
+
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.delete": "Delete",
   "common.duplicate": "Duplicate",
   "common.archive": "Archive",
   "common.restore": "Restore",
+  "common.add": "Add",
   "common.language": "Language",
   "common.uiLanguage": "UI language",
   "common.writingLanguage": "Writing language",
   "common.french": "French",
   "common.english": "English",
-  "settings.title": "Global settings",
 };
 
-export function translate(locale: Locale, key: MessageKey): string {
+export type MessageParams = Record<string, string | number>;
+
+export function translate(locale: Locale, key: MessageKey, params?: MessageParams): string {
   const dict = locale === "fr" ? fr : en;
-  return dict[key] ?? fr[key] ?? key;
+  let value: string = dict[key] ?? fr[key] ?? key;
+  if (params) {
+    for (const [name, raw] of Object.entries(params)) {
+      value = value.replaceAll(`{${name}}`, String(raw));
+    }
+  }
+  return value;
 }

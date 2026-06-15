@@ -56,7 +56,7 @@ export default function DashboardPage() {
 
   async function handleCreate() {
     if (!title.trim()) {
-      setActionError("Project title is required.");
+      setActionError(t("dashboard.titleRequired"));
       return;
     }
 
@@ -90,7 +90,7 @@ export default function DashboardPage() {
       await openProject(imported.project.id);
     } catch (error) {
       setPageError(
-        error instanceof Error ? `Import failed: ${error.message}` : "Import failed."
+        error instanceof Error ? t("dashboard.importFailed", { error: error.message }) : t("dashboard.importFailed", { error: "" })
       );
     }
   }
@@ -102,15 +102,13 @@ export default function DashboardPage() {
       await openProject(imported.project.id);
     } catch (error) {
       setPageError(
-        error instanceof Error ? `Backup restore failed: ${error.message}` : "Backup restore failed."
+        error instanceof Error ? t("dashboard.backupFailed", { error: error.message }) : t("dashboard.backupFailed", { error: "" })
       );
     }
   }
 
   async function handleDelete(projectId: string, title: string) {
-    const confirmed = window.confirm(
-      `Delete "${title}" permanently? This removes the manuscript, story bible, and all local history. Export a backup first if you are unsure.`
-    );
+    const confirmed = window.confirm(t("dashboard.deleteConfirm", { title }));
     if (!confirmed) return;
     await deleteProjectById(projectId);
   }
@@ -155,7 +153,7 @@ export default function DashboardPage() {
               </button>
 
               <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Import JSON/MD/TXT
+                {t("dashboard.importFile")}
                 <input
                   className="hidden"
                   type="file"
@@ -170,7 +168,7 @@ export default function DashboardPage() {
               </label>
 
               <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Restore Backup
+                {t("dashboard.restoreBackup")}
                 <input
                   className="hidden"
                   type="file"
@@ -197,11 +195,11 @@ export default function DashboardPage() {
         )}
 
         <section className="grid gap-4">
-          {loading && <p className="text-sm text-slate-500">Loading projects…</p>}
+          {loading && <p className="text-sm text-slate-500">{t("dashboard.loading")}</p>}
 
           {!loading && activeProjects.length === 0 && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white/80 p-10 text-center text-sm text-slate-500">
-              No project yet. Create one to start the end-to-end writing workflow.
+              {t("dashboard.empty")}
             </div>
           )}
 
@@ -217,7 +215,7 @@ export default function DashboardPage() {
                   </p>
                   <h2 className="truncate text-2xl font-semibold text-slate-900">{project.title}</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Audience: {project.audience} · Tone: {project.tone} · Target: {project.targetWordCount.toLocaleString()} words
+                    {t("dashboard.audienceLine", { audience: project.audience, tone: project.tone, target: project.targetWordCount.toLocaleString() })}
                   </p>
                   <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-slate-700">{project.synopsis}</p>
                 </div>
@@ -227,7 +225,7 @@ export default function DashboardPage() {
                     href={`/workspace/${project.id}`}
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
                   >
-                    Open Workspace
+                    {t("dashboard.openWorkspace")}
                   </Link>
                   <button
                     onClick={() => void handleDuplicate(project.id)}
@@ -239,7 +237,7 @@ export default function DashboardPage() {
                     onClick={() => void handleExport(project.id)}
                     className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                   >
-                    Export/Backup
+                    {t("dashboard.exportBackup")}
                   </button>
                   <button
                     onClick={() => void archiveProjectById(project.id, "archived")}
@@ -261,9 +259,9 @@ export default function DashboardPage() {
 
         {archivedProjects.length > 0 && (
           <section className="mt-8">
-            <h2 className="text-lg font-semibold text-slate-900">Archived projects</h2>
+            <h2 className="text-lg font-semibold text-slate-900">{t("dashboard.archivedTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Archived manuscripts stay stored locally. Restore one to keep working on it.
+              {t("dashboard.archivedSubtitle")}
             </p>
             <div className="mt-3 grid gap-2">
               {archivedProjects.map((project) => (
@@ -274,7 +272,7 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-800">{project.title}</p>
                     <p className="text-xs text-slate-500">
-                      {project.genre} · {project.targetWordCount.toLocaleString()} words target
+                      {t("dashboard.archivedMeta", { genre: project.genre, target: project.targetWordCount.toLocaleString() })}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -282,7 +280,7 @@ export default function DashboardPage() {
                       onClick={() => void archiveProjectById(project.id, "active")}
                       className="rounded-lg border border-teal-300 px-3 py-1.5 text-sm text-teal-800 hover:bg-teal-50"
                     >
-                      Restore
+                      {t("common.restore")}
                     </button>
                     <button
                       onClick={() => void handleDelete(project.id, project.title)}
@@ -301,9 +299,9 @@ export default function DashboardPage() {
       {showCreate && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4 py-8">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <h2 className="text-2xl font-bold text-slate-900">Create Project</h2>
+            <h2 className="text-2xl font-bold text-slate-900">{t("dashboard.createTitle")}</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Start from idea, detailed outline, or template. All flows use real persisted logic.
+              {t("dashboard.createSubtitle")}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -328,19 +326,19 @@ export default function DashboardPage() {
                 <input value={title} onChange={(e) => setTitle(e.target.value)} className="rounded-md px-3 py-2" />
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Genre
+                {t("dashboard.fieldGenre")}
                 <input value={genre} onChange={(e) => setGenre(e.target.value)} className="rounded-md px-3 py-2" />
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Audience
+                {t("dashboard.fieldAudience")}
                 <input value={audience} onChange={(e) => setAudience(e.target.value)} className="rounded-md px-3 py-2" />
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Tone
+                {t("dashboard.fieldTone")}
                 <input value={tone} onChange={(e) => setTone(e.target.value)} className="rounded-md px-3 py-2" />
               </label>
               <label className="grid gap-1 text-sm text-slate-700 sm:col-span-2">
-                Target words
+                {t("dashboard.fieldTargetWords")}
                 <input
                   type="number"
                   min={1000}
@@ -351,7 +349,7 @@ export default function DashboardPage() {
                 />
               </label>
               <label className="grid gap-1 text-sm text-slate-700 sm:col-span-2">
-                Initial chapter shells
+                {t("dashboard.fieldChapterShells")}
                 <input
                   type="number"
                   min={0}
@@ -360,12 +358,10 @@ export default function DashboardPage() {
                   onChange={(e) => setInitialChapterCount(Math.max(0, Number(e.target.value) || 0))}
                   className="rounded-md px-3 py-2"
                 />
-                <span className="text-xs text-slate-500">
-                  Leave at 0 to start empty. Outline mode can still derive chapters from your outline.
-                </span>
+                <span className="text-xs text-slate-500">{t("dashboard.chapterShellsHelp")}</span>
               </label>
               <label className="grid gap-1 text-sm text-slate-700 sm:col-span-2">
-                Synopsis
+                {t("dashboard.fieldSynopsis")}
                 <textarea
                   rows={4}
                   value={synopsis}
@@ -376,7 +372,7 @@ export default function DashboardPage() {
 
               {createMode === "outline" && (
                 <label className="grid gap-1 text-sm text-slate-700 sm:col-span-2">
-                  Outline text (one chapter per line)
+                  {t("dashboard.fieldOutline")}
                   <textarea
                     rows={6}
                     value={outlineText}
@@ -400,7 +396,7 @@ export default function DashboardPage() {
                 onClick={() => void handleCreate()}
                 className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
               >
-                Create and Open
+                {t("dashboard.createAndOpen")}
               </button>
             </div>
           </div>

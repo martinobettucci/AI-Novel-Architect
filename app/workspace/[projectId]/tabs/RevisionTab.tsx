@@ -7,6 +7,7 @@ import type { WorkspaceController } from "../useWorkspaceController";
 
 export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
   const {
+    t,
     activeProject,
     createRevisionIssue,
     selectedChapter,
@@ -26,7 +27,7 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
   return (
           <section className="grid gap-4 lg:grid-cols-2">
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Revision issues</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("revision.issues")}</h2>
               <button
                 onClick={() =>
                   void createRevisionIssue({
@@ -38,7 +39,7 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
                 }
                 className="mt-2 rounded border border-slate-300 px-3 py-1.5 text-sm"
               >
-                Add issue
+                {t("revision.addIssue")}
               </button>
               <div className="mt-3 space-y-2">
                 {activeProject.revisionIssues.map((issue) => (
@@ -57,9 +58,9 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
                         }
                         className="rounded border border-slate-300 px-2 py-1"
                       >
-                        <option value="open">Open</option>
-                        <option value="in-progress">In progress</option>
-                        <option value="resolved">Resolved</option>
+                        <option value="open">{t("revision.statusOpen")}</option>
+                        <option value="in-progress">{t("revision.statusInProgress")}</option>
+                        <option value="resolved">{t("revision.statusResolved")}</option>
                       </select>
                       <button
                         onClick={() => void deleteRevisionIssue(issue.id)}
@@ -74,15 +75,20 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
             </article>
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
-              <h2 className="text-xl font-semibold text-slate-900">Quality checks</h2>
+              <h2 className="text-xl font-semibold text-slate-900">{t("revision.quality")}</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Rubric weights: structure {resolved.settings.qa.rubricWeights.structure}% · character {resolved.settings.qa.rubricWeights.character}% · pacing {resolved.settings.qa.rubricWeights.pacing}% · style {resolved.settings.qa.rubricWeights.style}%
+                {t("revision.rubric", {
+                  structure: resolved.settings.qa.rubricWeights.structure,
+                  character: resolved.settings.qa.rubricWeights.character,
+                  pacing: resolved.settings.qa.rubricWeights.pacing,
+                  style: resolved.settings.qa.rubricWeights.style,
+                })}
               </p>
 
               {selectedChapter && (
                 <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <p className="text-sm text-slate-700">
-                    Current chapter score: <strong>{chapterScore}/10</strong>
+                    {t("revision.currentScore")} <strong>{chapterScore}/10</strong>
                   </p>
                   <ul className="mt-2 space-y-1">
                     {chapterGrammarSuggestions.map((suggestion) => (
@@ -92,7 +98,7 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
                           onClick={() => void createIssueFromGrammar(suggestion)}
                           className="rounded border border-slate-300 px-2 py-0.5"
                         >
-                          Track
+                          {t("revision.track")}
                         </button>
                       </li>
                     ))}
@@ -101,9 +107,12 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
               )}
 
               <div className="mt-4 rounded-lg border border-slate-200 p-3">
-                <h3 className="text-sm font-semibold text-slate-900">Checklists</h3>
+                <h3 className="text-sm font-semibold text-slate-900">{t("revision.checklists")}</h3>
                 <p className="text-xs text-slate-600">
-                  Revision completion: {checklistCompletion(activeProject.checklist, "revision")}% · Publish completion: {checklistCompletion(activeProject.checklist, "publish")}%
+                  {t("revision.checklistCompletion", {
+                    revision: checklistCompletion(activeProject.checklist, "revision"),
+                    publish: checklistCompletion(activeProject.checklist, "publish"),
+                  })}
                 </p>
                 <button
                   onClick={() =>
@@ -119,7 +128,7 @@ export function RevisionTab({ ctx }: { ctx: WorkspaceController }) {
                   }
                   className="mt-2 rounded border border-slate-300 px-2 py-1 text-xs"
                 >
-                  Add custom item
+                  {t("revision.addCustomItem")}
                 </button>
                 <ul className="mt-2 space-y-1">
                   {activeProject.checklist.map((item) => (

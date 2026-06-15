@@ -6,6 +6,7 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { downloadText } from "@/app/lib/download";
+import type { MessageKey } from "@/app/i18n/messages";
 
 export type WorkspaceTab =
   | "plan"
@@ -16,14 +17,14 @@ export type WorkspaceTab =
   | "marketing"
   | "settings";
 
-export const TABS: Array<{ id: WorkspaceTab; label: string }> = [
-  { id: "plan", label: "Plan" },
-  { id: "bible", label: "Story Bible" },
-  { id: "drafting", label: "Drafting" },
-  { id: "revision", label: "Revision" },
-  { id: "publish", label: "Publish" },
-  { id: "marketing", label: "Marketing" },
-  { id: "settings", label: "Settings" },
+export const TABS: Array<{ id: WorkspaceTab; labelKey: MessageKey }> = [
+  { id: "plan", labelKey: "tab.plan" },
+  { id: "bible", labelKey: "tab.bible" },
+  { id: "drafting", labelKey: "tab.drafting" },
+  { id: "revision", labelKey: "tab.revision" },
+  { id: "publish", labelKey: "tab.publish" },
+  { id: "marketing", labelKey: "tab.marketing" },
+  { id: "settings", labelKey: "tab.settings" },
 ];
 
 export function tabClass(active: boolean): string {

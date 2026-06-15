@@ -1,6 +1,7 @@
 "use client";
 
 import type { AiAction } from "@/app/domain/models";
+import { useI18n } from "@/app/i18n/I18nProvider";
 import type { WorkspaceController } from "./useWorkspaceController";
 
 function statusClass(status: AiAction["status"]): string {
@@ -19,6 +20,7 @@ function readFeature(metadata: string): string {
 }
 
 export function ProvenancePanel({ ctx }: { ctx: WorkspaceController }) {
+  const { t } = useI18n();
   const { activeProject } = ctx;
   if (!activeProject) return null;
 
@@ -26,14 +28,11 @@ export function ProvenancePanel({ ctx }: { ctx: WorkspaceController }) {
 
   return (
     <article className="rounded-2xl border border-slate-200 bg-white/90 p-5 lg:col-span-2">
-      <h2 className="text-xl font-semibold text-slate-900">AI activity & provenance</h2>
-      <p className="mt-1 text-sm text-slate-600">
-        Every AI call and every validated canon change is logged here with its model, inputs, and
-        outputs — the audit trail behind the project state.
-      </p>
+      <h2 className="text-xl font-semibold text-slate-900">{t("settings.provenance")}</h2>
+      <p className="mt-1 text-sm text-slate-600">{t("settings.provenanceSubtitle")}</p>
 
       {actions.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-600">No AI activity recorded yet.</p>
+        <p className="mt-3 text-sm text-slate-600">{t("settings.noActivity")}</p>
       ) : (
         <div className="mt-3 space-y-2">
           {actions.map((action) => {
