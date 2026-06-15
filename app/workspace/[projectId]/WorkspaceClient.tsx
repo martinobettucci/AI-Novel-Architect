@@ -21,6 +21,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     storeError,
     offline,
     pendingAiCount,
+    proposedDeltaCount,
     activeTab,
     setActiveTab,
   } = ctx;
@@ -65,6 +66,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
               Queued AI tasks: {pendingAiCount}
             </span>
+            {proposedDeltaCount > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-800">
+                {proposedDeltaCount} delta{proposedDeltaCount > 1 ? "s" : ""} to review
+              </span>
+            )}
             <Link href="/" className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-50">
               Back to dashboard
             </Link>

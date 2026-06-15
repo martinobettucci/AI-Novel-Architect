@@ -1,6 +1,7 @@
 "use client";
 
 import { asProjectLanguage } from "../helpers";
+import { ProvenancePanel } from "../ProvenancePanel";
 import type { WorkspaceController } from "../useWorkspaceController";
 
 export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
@@ -188,6 +189,8 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
                 ))}
               </ul>
             </article>
+
+            <ProvenancePanel ctx={ctx} />
           </section>
   );
 }

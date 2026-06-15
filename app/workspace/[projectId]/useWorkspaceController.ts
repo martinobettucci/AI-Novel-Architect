@@ -15,6 +15,7 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import {
+  createCanonDelta,
   createEntityProgression,
   createId,
   createLocationProfile,
@@ -60,12 +61,18 @@ import {
   parseStoryWorldSuggestion,
   type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
-import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
+import { buildPreviewApply, runAiAction, runStructuredAiAction } from "@/app/lib/ai/client";
+import {
+  buildChapterDeltaContext,
+  buildChapterDeltaInput,
+  mapChapterDeltaProposals,
+} from "@/app/lib/ai/canonDeltaAnalysis";
 import type { DiffChunk } from "@/app/lib/ai/diff";
 import {
   buildGrammarSuggestions,
   buildMarketingArtifacts,
   buildPublishingArtifacts,
+  canonDeltasForChapter,
   chapterTrackerReportsForChapter,
   computeChapterQualityScore,
   computeContinuityConflicts,
@@ -73,6 +80,8 @@ import {
   entityHistoryForEntity,
   logAiAction,
   progressionForEntity,
+  verifyCanonDelta,
+  wordsWrittenToday,
 } from "@/app/lib/repository";
 import { useProjectStore } from "@/app/stores/projectStore";
 import { useSettingsStore } from "@/app/stores/settingsStore";
@@ -127,6 +136,10 @@ export function useWorkspaceController(projectId: string) {
   const saveAnnotation = useProjectStore((state) => state.saveAnnotation);
   const deleteAnnotation = useProjectStore((state) => state.deleteAnnotation);
   const saveGoal = useProjectStore((state) => state.saveGoal);
+  const saveDelta = useProjectStore((state) => state.saveDelta);
+  const approveDelta = useProjectStore((state) => state.approveDelta);
+  const rejectDelta = useProjectStore((state) => state.rejectDelta);
+  const deleteDelta = useProjectStore((state) => state.deleteDelta);
   const createSnapshot = useProjectStore((state) => state.createSnapshot);
   const restoreSnapshot = useProjectStore((state) => state.restoreSnapshot);
   const exportActiveProjectJson = useProjectStore((state) => state.exportActiveProjectJson);
@@ -183,6 +196,10 @@ export function useWorkspaceController(projectId: string) {
   const [sceneDraftAiError, setSceneDraftAiError] = useState<string | null>(null);
   const [sceneDraftAiMessage, setSceneDraftAiMessage] = useState<string | null>(null);
   const [searchReplaceMessage, setSearchReplaceMessage] = useState<string | null>(null);
+  const [deltaAiStatus, setDeltaAiStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [deltaAiError, setDeltaAiError] = useState<string | null>(null);
+  const [deltaAiMessage, setDeltaAiMessage] = useState<string | null>(null);
   const [storyBiblePreview, setStoryBiblePreview] = useState<ReturnType<
     typeof parseStoryBibleSuggestion
   > | null>(null);
@@ -255,6 +272,8 @@ export function useWorkspaceController(projectId: string) {
     setSceneDraftPreview(null);
     setSceneDraftAiError(null);
     setSceneDraftAiMessage(null);
+    setDeltaAiError(null);
+    setDeltaAiMessage(null);
   }, [selectedChapter?.id]);
 
   const selectedScenes = useMemo(() => {
@@ -438,6 +457,21 @@ export function useWorkspaceController(projectId: string) {
     if (!activeProject) return 0;
     return activeProject.chapters.reduce((sum, chapter) => sum + chapter.wordCountCurrent, 0);
   }, [activeProject]);
+
+  const wordsToday = useMemo(
+    () => (activeProject ? wordsWrittenToday(activeProject) : 0),
+    [activeProject]
+  );
+
+  const selectedChapterDeltas = useMemo(() => {
+    if (!activeProject || !selectedChapter) return [];
+    return canonDeltasForChapter(activeProject, selectedChapter.id);
+  }, [activeProject, selectedChapter]);
+
+  const proposedDeltaCount = useMemo(
+    () => (activeProject ? activeProject.canonDeltas.filter((d) => d.status === "proposed").length : 0),
+    [activeProject]
+  );
 
   const chapterScore = useMemo(() => {
     if (!selectedChapter) return 0;
@@ -1306,6 +1340,132 @@ export function useWorkspaceController(projectId: string) {
     }
   }
 
+  async function analyzeChapterForDeltas() {
+    const bundle = activeProject;
+    if (!bundle || !selectedChapter) return;
+
+    const input = buildChapterDeltaInput(bundle, selectedChapter.id);
+    const context = buildChapterDeltaContext();
+    setDeltaAiStatus("running");
+    setDeltaAiError(null);
+    setDeltaAiMessage(null);
+
+    try {
+      const { data: proposals, result } = await runStructuredAiAction(
+        { action: "consistency_check", input, context, settings: resolved.settings },
+        mapChapterDeltaProposals
+      );
+
+      // Resolve proposed entity names to canon ids; verify each against the text.
+      const idByKey = new Map<string, string>();
+      bundle.characters.forEach((item) =>
+        idByKey.set(`character:${normalizeLookupKey(item.name)}`, item.id)
+      );
+      bundle.locations.forEach((item) =>
+        idByKey.set(`location:${normalizeLookupKey(item.name)}`, item.id)
+      );
+      bundle.loreEntries.forEach((item) =>
+        idByKey.set(`lore:${normalizeLookupKey(item.title)}`, item.id)
+      );
+      bundle.timeline.forEach((item) =>
+        idByKey.set(`timeline_event:${normalizeLookupKey(item.label)}`, item.id)
+      );
+
+      const chapterText = selectedChapter.content;
+      let created = 0;
+      let skipped = 0;
+
+      for (const proposal of proposals) {
+        let entityId = "";
+        let entityLabel = proposal.entityName;
+
+        if (proposal.entityType === "chapter") {
+          entityId = selectedChapter.id;
+          entityLabel = chapterLabel(selectedChapter);
+        } else if (proposal.entityType === "relationship") {
+          skipped += 1;
+          continue;
+        } else {
+          const resolvedId = idByKey.get(
+            `${proposal.entityType}:${normalizeLookupKey(proposal.entityName)}`
+          );
+          if (!resolvedId) {
+            skipped += 1;
+            continue;
+          }
+          entityId = resolvedId;
+        }
+
+        const verdict = verifyCanonDelta(
+          { after: proposal.after, confidence: proposal.confidence, evidence: proposal.evidence },
+          chapterText
+        );
+
+        await saveDelta(
+          createCanonDelta(projectIdValue, {
+            chapterId: selectedChapter.id,
+            entityType: proposal.entityType,
+            entityId,
+            entityLabel,
+            layer: proposal.layer,
+            before: proposal.before,
+            after: proposal.after,
+            confidence: proposal.confidence,
+            rationale: proposal.rationale,
+            evidence: proposal.evidence,
+            status: "proposed",
+            source: "ai",
+            verifierVerdict: verdict.verdict,
+            verifierReason: verdict.reason,
+          })
+        );
+        created += 1;
+      }
+
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: result.action,
+        status: "completed",
+        model: result.model,
+        providerBaseUrl: result.baseUrl,
+        inputPreview: input,
+        outputPreview: result.text,
+        metadata: {
+          feature: "chapter_delta_analysis",
+          proposed: proposals.length,
+          created,
+          skipped,
+        },
+      });
+
+      setDeltaAiStatus("idle");
+      setDeltaAiMessage(
+        created === 0
+          ? "No applicable canon deltas were proposed for this chapter."
+          : `${created} canon delta${created > 1 ? "s" : ""} proposed${
+              skipped > 0 ? `, ${skipped} skipped (unmatched entity or unsupported type)` : ""
+            }. Review and validate below.`
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Chapter delta analysis failed";
+      setDeltaAiStatus("error");
+      setDeltaAiError(errorMessage);
+      await logAiAction({
+        projectId: projectIdValue,
+        chapterId: selectedChapter.id,
+        action: "consistency_check",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: { feature: "chapter_delta_analysis", error: errorMessage },
+      });
+    }
+  }
+
   async function generateChapterDraft() {
     if (!activeProject || !selectedChapter) return;
 
@@ -1695,6 +1855,9 @@ export function useWorkspaceController(projectId: string) {
     sceneDraftAiError,
     sceneDraftAiMessage,
     searchReplaceMessage,
+    deltaAiStatus,
+    deltaAiError,
+    deltaAiMessage,
     storyBiblePreview,
     storyWorldPreview,
     chapterDetailsPreview,
@@ -1718,6 +1881,9 @@ export function useWorkspaceController(projectId: string) {
     progressionByEntity,
     pendingAiCount,
     manuscriptWordCount,
+    wordsToday,
+    selectedChapterDeltas,
+    proposedDeltaCount,
     chapterScore,
     chapterGrammarSuggestions,
     editor,
@@ -1747,6 +1913,10 @@ export function useWorkspaceController(projectId: string) {
     applyChapterDetailsSuggestion,
     discardChapterDetailsSuggestion,
     computeSelectedChapterTrackers,
+    analyzeChapterForDeltas,
+    approveDelta,
+    rejectDelta,
+    deleteDelta,
     generateChapterDraft,
     applyGeneratedChapterDraft,
     suggestSceneCards,

@@ -11,6 +11,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
     saveProjectMeta,
     continuityConflicts,
     manuscriptWordCount,
+    wordsToday,
     selectedChapter,
     saveGoal,
     addChapter,
@@ -79,6 +80,31 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
               <h2 className="text-xl font-semibold text-slate-900">Writing goals & progress</h2>
               <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
                 <div>
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="text-slate-700">Written today</span>
+                    <span className="font-semibold text-slate-900">
+                      {wordsToday.toLocaleString()} / {activeProject.goal.dailyWords.toLocaleString()} words
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={activeProject.goal.dailyWords}
+                    aria-valuenow={Math.min(wordsToday, activeProject.goal.dailyWords)}
+                    className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100"
+                  >
+                    <div
+                      className="h-full rounded-full bg-amber-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          activeProject.goal.dailyWords > 0
+                            ? Math.round((wordsToday / activeProject.goal.dailyWords) * 100)
+                            : 0
+                        )}%`,
+                      }}
+                    />
+                  </div>
                   <div className="flex items-center justify-between text-sm text-slate-700">
                     <span>Manuscript progress</span>
                     <span className="font-semibold">

@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type {
   Annotation,
+  CanonDelta,
   Chapter,
   ChapterTrackerReport,
   CharacterProfile,
@@ -24,8 +25,12 @@ import type {
 import {
   addChapter,
   addScene,
+  approveCanonDelta as approveCanonDeltaRecord,
   archiveProject,
   createProjectFromInput,
+  deleteCanonDelta as deleteCanonDeltaRecord,
+  rejectCanonDelta as rejectCanonDeltaRecord,
+  saveCanonDelta as saveCanonDeltaRecord,
   createRevisionIssue,
   createSnapshot,
   deleteAnnotation,
@@ -145,6 +150,10 @@ interface ProjectState {
   saveAnnotation: (annotation: Annotation) => Promise<void>;
   deleteAnnotation: (annotationId: string) => Promise<void>;
   saveGoal: (goal: WritingGoal) => Promise<void>;
+  saveDelta: (delta: CanonDelta) => Promise<void>;
+  approveDelta: (deltaId: string) => Promise<void>;
+  rejectDelta: (deltaId: string) => Promise<void>;
+  deleteDelta: (deltaId: string) => Promise<void>;
   saveManuscriptTitle: (title: string, subtitle: string, premise: string) => Promise<void>;
   createSnapshot: (label: string, chapterId?: string, payload?: string) => Promise<void>;
   restoreSnapshot: (snapshotId: string) => Promise<void>;
@@ -167,7 +176,8 @@ type BundleListKey =
   | "revisionIssues"
   | "checklist"
   | "annotations"
-  | "chapterTrackerReports";
+  | "chapterTrackerReports"
+  | "canonDeltas";
 
 interface ListItem {
   id: string;
@@ -603,6 +613,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({ activeProject: { ...active, goal }, error: null });
     }
     await persist(set, get, () => saveWritingGoal(goal));
+  },
+  saveDelta: async (delta) => {
+    await saveListItem(set, get, "canonDeltas", delta, () => saveCanonDeltaRecord(delta));
+  },
+  approveDelta: async (deltaId) => {
+    // Approval mutates canon entities, so reload the whole bundle.
+    await persistAndRefresh(set, get, () => approveCanonDeltaRecord(deltaId));
+  },
+  rejectDelta: async (deltaId) => {
+    const active = get().activeProject;
+    if (active) {
+      set({
+        activeProject: {
+          ...active,
+          canonDeltas: active.canonDeltas.map((delta) =>
+            delta.id === deltaId ? { ...delta, status: "rejected" } : delta
+          ),
+        },
+        error: null,
+      });
+    }
+    await persist(set, get, () => rejectCanonDeltaRecord(deltaId));
+  },
+  deleteDelta: async (deltaId) => {
+    await deleteListItem(set, get, "canonDeltas", deltaId, () => deleteCanonDeltaRecord(deltaId));
   },
   saveManuscriptTitle: async (title, subtitle, premise) => {
     const active = get().activeProject;

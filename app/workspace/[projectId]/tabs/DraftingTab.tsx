@@ -8,6 +8,7 @@ import { listChapterTrackerTypes } from "@/app/lib/ai/chapterTrackers";
 import { chapterLabel, chapterTrackerLabel, historyEntityTypeLabel, plainTextWordCount, SCENE_FIELD_HELP } from "../helpers";
 import type { WorkspaceController } from "../useWorkspaceController";
 import { SelectedChapterDetailsCard } from "../SelectedChapterDetailsCard";
+import { CanonDeltaPanel } from "../CanonDeltaPanel";
 
 export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
   const {
@@ -331,6 +332,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                       )}
                     </div>
                   </div>
+
+                  <CanonDeltaPanel ctx={ctx} />
 
                   <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
