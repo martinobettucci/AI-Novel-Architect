@@ -51,6 +51,11 @@ import {
   type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
 import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
+import {
+  runAgentPool,
+  type AgentStatus,
+  type AgentTask,
+} from "@/app/lib/ai/agentPool";
 import { replaceInHtmlText } from "@/app/lib/html";
 import {
   DEFAULT_ORCHESTRATION_POLICY,
@@ -170,6 +175,11 @@ export function useWorkspaceController(projectId: string) {
   const [chapterDraftAiError, setChapterDraftAiError] = useState<string | null>(null);
   const [chapterDraftAiMessage, setChapterDraftAiMessage] = useState<string | null>(null);
   const [chapterDraftPreview, setChapterDraftPreview] = useState<string>("");
+  const [chapterDraftConcurrentStatus, setChapterDraftConcurrentStatus] =
+    useState<"idle" | "running" | "error">("idle");
+  const [sceneAgentRuns, setSceneAgentRuns] = useState<
+    Array<{ id: string; label: string; status: AgentStatus; ms?: number; error?: string }>
+  >([]);
   const [selectedHistoryEntityKey, setSelectedHistoryEntityKey] = useState<string>("");
   const [sceneCardsAiStatus, setSceneCardsAiStatus] =
     useState<"idle" | "running" | "error">("idle");
@@ -250,6 +260,8 @@ export function useWorkspaceController(projectId: string) {
     setChapterDraftPreview("");
     setChapterDraftAiError(null);
     setChapterDraftAiMessage(null);
+    setSceneAgentRuns([]);
+    setChapterDraftConcurrentStatus("idle");
     setChapterDetailsPreview(null);
     setChapterDetailsAiError(null);
     setChapterDetailsAiMessage(null);
@@ -1299,6 +1311,144 @@ export function useWorkspaceController(projectId: string) {
     setChapterDraftAiMessage("Generated chapter draft inserted into the editor.");
   }
 
+  /** Deterministic generation step: assemble the chapter preview from scene checkpoints. */
+  function assembleChapterFromScenes() {
+    const assembled = selectedScenes
+      .map((scene) =>
+        scene.draftText.trim() ? `${sceneLabel(scene)}\n\n${scene.draftText.trim()}` : ""
+      )
+      .filter(Boolean)
+      .join("\n\n");
+    setChapterDraftPreview(assembled);
+    setChapterDraftAiMessage(t("draft.assembledFromScenes"));
+  }
+
+  async function runSceneDraftAgent(scene: Scene): Promise<string> {
+    const bundle = activeProject;
+    if (!bundle || !selectedChapter) return "";
+    const input = buildSceneDraftInput(bundle, selectedChapter.id, scene.id);
+    const context = buildSceneDraftContext();
+    const result = await runAiAction({
+      action: "continue",
+      input,
+      context,
+      settings: resolved.settings,
+    });
+    await saveScene({ ...scene, draftText: result.text });
+    await logAiAction({
+      projectId: projectIdValue,
+      chapterId: selectedChapter.id,
+      action: result.action,
+      status: "completed",
+      model: result.model,
+      providerBaseUrl: result.baseUrl,
+      inputPreview: input,
+      outputPreview: result.text,
+      metadata: {
+        feature: "scene_draft_agent",
+        chapterNumber: selectedChapter.number,
+        sceneOrder: scene.order,
+      },
+    });
+    return result.text;
+  }
+
+  /** Concurrent multi-agent drafting: one small agent per scene, each a persisted checkpoint. */
+  async function generateChapterDraftConcurrent() {
+    const bundle = activeProject;
+    if (!bundle || !selectedChapter) return;
+
+    if (selectedChapter.aiLocked) {
+      setChapterDraftConcurrentStatus("error");
+      setChapterDraftAiError(t("draft.locked"));
+      return;
+    }
+
+    const scenes = selectedScenes;
+    if (scenes.length === 0) {
+      setChapterDraftConcurrentStatus("error");
+      setChapterDraftAiError(t("draft.noScenes"));
+      return;
+    }
+
+    setChapterDraftConcurrentStatus("running");
+    setChapterDraftAiError(null);
+    setChapterDraftAiMessage(null);
+    setSceneAgentRuns(
+      scenes.map((scene) => ({ id: scene.id, label: sceneLabel(scene), status: "pending" as AgentStatus }))
+    );
+
+    const tasks: AgentTask<string>[] = scenes.map((scene) => ({
+      id: scene.id,
+      label: sceneLabel(scene),
+      run: () => runSceneDraftAgent(scene),
+    }));
+
+    const outcomes = await runAgentPool(tasks, {
+      concurrency: 3,
+      onStart: ({ id }) =>
+        setSceneAgentRuns((prev) =>
+          prev.map((run) => (run.id === id ? { ...run, status: "running" } : run))
+        ),
+      onSettle: (outcome) =>
+        setSceneAgentRuns((prev) =>
+          prev.map((run) =>
+            run.id === outcome.id
+              ? { id: outcome.id, label: outcome.label, status: outcome.status, ms: outcome.ms, error: outcome.error }
+              : run
+          )
+        ),
+    });
+
+    const okCount = outcomes.filter((outcome) => outcome.status === "ok").length;
+    const assembled = scenes
+      .map((scene) => {
+        const outcome = outcomes.find((item) => item.id === scene.id);
+        const text = outcome?.status === "ok" && outcome.data ? outcome.data : scene.draftText;
+        return text.trim() ? `${sceneLabel(scene)}\n\n${text.trim()}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+
+    setChapterDraftPreview(assembled);
+    const failed = outcomes.length - okCount;
+    setChapterDraftConcurrentStatus(failed > 0 ? "error" : "idle");
+    setChapterDraftAiMessage(
+      t("draft.concurrentDone", { ok: okCount, total: scenes.length })
+    );
+  }
+
+  /** Re-run a single failed/edited scene agent (checkpoint recovery). */
+  async function retrySceneAgent(scene: Scene) {
+    setSceneAgentRuns((prev) =>
+      prev.some((run) => run.id === scene.id)
+        ? prev.map((run) => (run.id === scene.id ? { ...run, status: "running" } : run))
+        : [...prev, { id: scene.id, label: sceneLabel(scene), status: "running" as AgentStatus }]
+    );
+    const start = Date.now();
+    try {
+      await runSceneDraftAgent(scene);
+      setSceneAgentRuns((prev) =>
+        prev.map((run) =>
+          run.id === scene.id ? { ...run, status: "ok", ms: Date.now() - start, error: undefined } : run
+        )
+      );
+    } catch (error) {
+      setSceneAgentRuns((prev) =>
+        prev.map((run) =>
+          run.id === scene.id
+            ? {
+                ...run,
+                status: "failed",
+                ms: Date.now() - start,
+                error: error instanceof Error ? error.message : "failed",
+              }
+            : run
+        )
+      );
+    }
+  }
+
   async function suggestSceneCards() {
     if (!activeProject || !selectedChapter) return;
 
@@ -1655,6 +1805,11 @@ export function useWorkspaceController(projectId: string) {
     deleteDelta,
     generateChapterDraft,
     applyGeneratedChapterDraft,
+    generateChapterDraftConcurrent,
+    retrySceneAgent,
+    assembleChapterFromScenes,
+    chapterDraftConcurrentStatus,
+    sceneAgentRuns,
     suggestSceneCards,
     applySceneCardSuggestions,
     discardSceneCardSuggestions,

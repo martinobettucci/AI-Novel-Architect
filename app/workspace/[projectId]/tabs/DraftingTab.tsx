@@ -41,6 +41,11 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
     selectedChapterTrackerReports,
     selectedChapterEntityHistory,
     generateChapterDraft,
+    generateChapterDraftConcurrent,
+    retrySceneAgent,
+    assembleChapterFromScenes,
+    chapterDraftConcurrentStatus,
+    sceneAgentRuns,
     chapterDraftAiStatus,
     chapterDraftAiMessage,
     chapterDraftAiError,
@@ -325,6 +330,15 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           {selectedChapter.wordCountCurrent} / {selectedChapter.wordCountTarget} words
                         </span>
                         <button
+                          onClick={() => void generateChapterDraftConcurrent()}
+                          disabled={chapterDraftConcurrentStatus === "running"}
+                          className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                        >
+                          {chapterDraftConcurrentStatus === "running"
+                            ? t("draft.concurrentRunning")
+                            : t("draft.concurrentDraft")}
+                        </button>
+                        <button
                           onClick={() => void generateChapterDraft()}
                           disabled={chapterDraftAiStatus === "running"}
                           className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
@@ -335,6 +349,69 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                         </button>
                       </div>
                     </div>
+
+                    {sceneAgentRuns.length > 0 && (
+                      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-slate-900">
+                            {t("draft.checkpoints")}
+                          </h4>
+                          <button
+                            onClick={() => assembleChapterFromScenes()}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            {t("draft.assemble")}
+                          </button>
+                        </div>
+                        <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                          {sceneAgentRuns.map((run) => {
+                            const scene = selectedScenes.find((item) => item.id === run.id);
+                            const statusLabel =
+                              run.status === "ok"
+                                ? t("draft.statusOk")
+                                : run.status === "failed"
+                                  ? t("draft.statusFailed")
+                                  : run.status === "running"
+                                    ? t("draft.statusRunning")
+                                    : t("draft.statusPending");
+                            const statusClass =
+                              run.status === "ok"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : run.status === "failed"
+                                  ? "bg-rose-100 text-rose-800"
+                                  : run.status === "running"
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-slate-100 text-slate-600";
+                            return (
+                              <li
+                                key={run.id}
+                                className="flex items-center justify-between gap-2 rounded border border-slate-200 px-2 py-1 text-xs"
+                              >
+                                <span className="min-w-0 truncate text-slate-700" title={run.error}>
+                                  {run.label}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  {run.ms != null && (
+                                    <span className="text-[11px] text-slate-400">{run.ms} ms</span>
+                                  )}
+                                  <span className={`rounded-full px-2 py-0.5 font-semibold ${statusClass}`}>
+                                    {statusLabel}
+                                  </span>
+                                  {run.status === "failed" && scene && (
+                                    <button
+                                      onClick={() => void retrySceneAgent(scene)}
+                                      className="rounded border border-slate-300 px-1.5 py-0.5"
+                                    >
+                                      {t("draft.retry")}
+                                    </button>
+                                  )}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button

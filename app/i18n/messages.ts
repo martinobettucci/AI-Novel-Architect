@@ -394,6 +394,19 @@ const fr = {
   "compile.download": "Télécharger (.md)",
   "compile.nothing": "Sélectionnez au moins un chapitre.",
   "compile.generatedChars": "{count} caractères compilés",
+  "draft.concurrentDraft": "Rédaction concurrente (un agent par scène)",
+  "draft.concurrentRunning": "Agents en cours…",
+  "draft.assemble": "Assembler depuis les brouillons",
+  "draft.assembledFromScenes": "Aperçu assemblé à partir des brouillons de scènes.",
+  "draft.concurrentDone": "{ok}/{total} scènes générées en parallèle. Aperçu assemblé prêt à appliquer.",
+  "draft.locked": "Ce chapitre est verrouillé contre la réécriture IA. Déverrouillez-le d'abord.",
+  "draft.noScenes": "Ajoutez des cartes de scènes pour générer le chapitre par agents concurrents.",
+  "draft.checkpoints": "Points de contrôle par scène",
+  "draft.retry": "Relancer",
+  "draft.statusPending": "en attente",
+  "draft.statusRunning": "en cours",
+  "draft.statusOk": "ok",
+  "draft.statusFailed": "échec",
 } as const;
 
 export type MessageKey = keyof typeof fr;
@@ -789,6 +802,19 @@ const en: Record<MessageKey, string> = {
   "compile.download": "Download (.md)",
   "compile.nothing": "Select at least one chapter.",
   "compile.generatedChars": "{count} compiled characters",
+  "draft.concurrentDraft": "Concurrent drafting (one agent per scene)",
+  "draft.concurrentRunning": "Agents running…",
+  "draft.assemble": "Assemble from scene drafts",
+  "draft.assembledFromScenes": "Preview assembled from the scene drafts.",
+  "draft.concurrentDone": "{ok}/{total} scenes generated concurrently. Assembled preview ready to apply.",
+  "draft.locked": "This chapter is locked from AI rewrite. Unlock it first.",
+  "draft.noScenes": "Add scene cards to draft the chapter via concurrent agents.",
+  "draft.checkpoints": "Per-scene checkpoints",
+  "draft.retry": "Retry",
+  "draft.statusPending": "pending",
+  "draft.statusRunning": "running",
+  "draft.statusOk": "ok",
+  "draft.statusFailed": "failed",
 };
 
 export type MessageParams = Record<string, string | number>;
