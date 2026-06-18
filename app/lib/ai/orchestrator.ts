@@ -1,5 +1,6 @@
 import type { AiActionType, ProjectBundle } from "@/app/domain/models";
 import { extractJson } from "@/app/lib/ai/client";
+import { runAgentPool, type AgentTask } from "@/app/lib/ai/agentPool";
 import {
   buildChapterDeltaContext,
   buildChapterDeltaInput,
@@ -185,67 +186,103 @@ export async function runChapterOrchestration(
   const chapter = bundle.chapters.find((item) => item.id === chapterId);
   if (!chapter) return { steps, proposals, diagnostics, extraction };
 
-  for (const stepId of policy.steps) {
-    if (stepId === "verifier") {
-      // Deterministic: nothing to call; surfaces the count carried forward.
-      steps.push({
-        id: "verifier",
-        label: STEP_LABEL.verifier,
-        status: "ok",
-        detail: `${proposals.length} proposition(s) à vérifier contre le texte`,
-        inputChars: 0,
-      });
-      continue;
-    }
-
-    let request: StepRequest;
-    if (stepId === "extractor") request = buildExtractorRequest(bundle, chapterId);
-    else if (stepId === "reconciler") request = buildReconcilerRequest(bundle, chapterId, extraction);
-    else request = buildAuditRequest(stepId, bundle, chapterId, extraction);
-
+  // 1. Extraction runs first: the audit and reconciliation agents depend on its facts.
+  if (policy.steps.includes("extractor")) {
+    const request = buildExtractorRequest(bundle, chapterId);
     try {
-      const raw = await run(request);
-      const parsed = extractJson(raw);
+      extraction = mapFacts(extractJson(await run(request)));
+      const count = extraction ? extraction.split("\n").length : 0;
+      steps.push({
+        id: "extractor",
+        label: STEP_LABEL.extractor,
+        status: "ok",
+        detail: `${count} fait(s) extrait(s)`,
+        inputChars: request.input.length,
+      });
+    } catch (error) {
+      steps.push({
+        id: "extractor",
+        label: STEP_LABEL.extractor,
+        status: "failed",
+        detail: error instanceof Error ? error.message : "échec",
+        inputChars: request.input.length,
+      });
+    }
+  }
 
-      if (stepId === "extractor") {
-        extraction = mapFacts(parsed);
-        const count = extraction ? extraction.split("\n").length : 0;
-        steps.push({
-          id: stepId,
-          label: STEP_LABEL[stepId],
-          status: "ok",
-          detail: `${count} fait(s) extrait(s)`,
-          inputChars: request.input.length,
-        });
-      } else if (stepId === "reconciler") {
-        proposals = mapChapterDeltaProposals(parsed);
+  // 2. The reconciler and the audit agents are independent: run them concurrently.
+  interface MiddleResult {
+    inputChars: number;
+    proposals?: DeltaProposal[];
+    diagnostics?: OrchestratorDiagnostic[];
+  }
+  const middle = policy.steps.filter(
+    (step): step is "reconciler" | "continuity" | "pov" =>
+      step === "reconciler" || step === "continuity" || step === "pov"
+  );
+  const tasks: AgentTask<MiddleResult>[] = middle.map((stepId) => ({
+    id: stepId,
+    label: STEP_LABEL[stepId],
+    run: async () => {
+      const request: StepRequest =
+        stepId === "reconciler"
+          ? buildReconcilerRequest(bundle, chapterId, extraction)
+          : buildAuditRequest(stepId, bundle, chapterId, extraction);
+      const parsed = extractJson(await run(request));
+      if (stepId === "reconciler") {
+        return { inputChars: request.input.length, proposals: mapChapterDeltaProposals(parsed) };
+      }
+      return { inputChars: request.input.length, diagnostics: mapDiagnostics(parsed, stepId) };
+    },
+  }));
+
+  const outcomes = await runAgentPool(tasks, { concurrency: Math.max(1, tasks.length) });
+
+  // Fold outcomes back in deterministic policy order so the run log is stable.
+  for (const stepId of middle) {
+    const outcome = outcomes.find((item) => item.id === stepId);
+    if (!outcome) continue;
+    if (outcome.status === "ok" && outcome.data) {
+      if (outcome.data.proposals) {
+        proposals = outcome.data.proposals;
         steps.push({
           id: stepId,
           label: STEP_LABEL[stepId],
           status: "ok",
           detail: `${proposals.length} delta(s) proposé(s)`,
-          inputChars: request.input.length,
+          inputChars: outcome.data.inputChars,
         });
       } else {
-        const issues = mapDiagnostics(parsed, stepId);
+        const issues = outcome.data.diagnostics ?? [];
         diagnostics.push(...issues);
         steps.push({
           id: stepId,
           label: STEP_LABEL[stepId],
           status: "ok",
           detail: `${issues.length} diagnostic(s)`,
-          inputChars: request.input.length,
+          inputChars: outcome.data.inputChars,
         });
       }
-    } catch (error) {
+    } else {
       steps.push({
         id: stepId,
         label: STEP_LABEL[stepId],
         status: "failed",
-        detail: error instanceof Error ? error.message : "échec",
-        inputChars: request.input.length,
+        detail: outcome.error ?? "échec",
+        inputChars: 0,
       });
     }
+  }
+
+  // 3. The verifier is deterministic and runs last.
+  if (policy.steps.includes("verifier")) {
+    steps.push({
+      id: "verifier",
+      label: STEP_LABEL.verifier,
+      status: "ok",
+      detail: `${proposals.length} proposition(s) à vérifier contre le texte`,
+      inputChars: 0,
+    });
   }
 
   return { steps, proposals, diagnostics, extraction };
