@@ -189,6 +189,60 @@ export function buildStoryWorldSuggestionContext(): string {
   ].join("\n");
 }
 
+export const STORY_WORLD_SECTIONS = [
+  "characters",
+  "locations",
+  "lore",
+  "timeline",
+  "relationships",
+] as const;
+
+export type StoryWorldSectionKey = (typeof STORY_WORLD_SECTIONS)[number];
+
+const SECTION_TEMPLATE: Record<StoryWorldSectionKey, { label: string; line: string }> = {
+  characters: {
+    label: "Characters",
+    line: "- name: ... | role: ... | motivation: ... | arc: ... | voice: ... | relationships: ... | notes: ...",
+  },
+  locations: {
+    label: "Locations",
+    line: "- name: ... | role: ... | narrativeStatus: ... | description: ... | notes: ...",
+  },
+  lore: {
+    label: "Lore",
+    line: "- title: ... | category: ... | status: ... | description: ... | notes: ...",
+  },
+  timeline: {
+    label: "Timeline",
+    line: "- order: 1 | chapter: 1 | label: ... | details: ... | impact: ...",
+  },
+  relationships: {
+    label: "Relationships",
+    line: "- sourceType: character | source: ... | targetType: location | target: ... | relationType: ... | status: ... | intensity: 3 | notes: ...",
+  },
+};
+
+export function storyWorldSectionLabel(section: StoryWorldSectionKey): string {
+  return SECTION_TEMPLATE[section].label;
+}
+
+/** Focused context for one scaffold section, so each section is a small agent. */
+export function buildStoryWorldSectionContext(section: StoryWorldSectionKey): string {
+  const template = SECTION_TEMPLATE[section];
+  return [
+    `Suggest the ${template.label} for the story-world scaffold.`,
+    "Use the project synopsis, story bible, chapters, and registries as canon. Prefer completing the existing structure rather than inventing a disconnected one.",
+    "Return plain text using exactly this template. Keep the label exactly and write all values in the requested response language:",
+    `[${template.label}]`,
+    template.line,
+    "Requirements:",
+    "- Return at least one concrete, project-specific line.",
+    "- Use only these entity types: character, location, lore, timeline_event.",
+    "- Relationship intensity must be an integer from 1 to 5.",
+    "- Do not add commentary before or after the template.",
+  ].join("\n");
+}
+
 function extractSection(text: string, label: string, nextLabels: string[]): string {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const nextPattern = nextLabels

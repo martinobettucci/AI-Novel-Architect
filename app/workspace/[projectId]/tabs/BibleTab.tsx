@@ -13,6 +13,8 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
     suggestStoryBible,
     storyBibleAiStatus,
     suggestStoryWorldScaffold,
+    suggestStoryWorldScaffoldConcurrent,
+    worldAgentRuns,
     storyWorldAiStatus,
     storyBibleAiMessage,
     storyBibleAiError,
@@ -66,6 +68,15 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                     {storyBibleAiStatus === "running" ? "…" : t("bible.aiSuggestCore")}
                   </button>
                   <button
+                    onClick={() => void suggestStoryWorldScaffoldConcurrent()}
+                    disabled={storyWorldAiStatus === "running"}
+                    className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    {storyWorldAiStatus === "running"
+                      ? t("bible.worldAgentsRunning")
+                      : t("bible.aiSuggestWorldConcurrent")}
+                  </button>
+                  <button
                     onClick={() => void suggestStoryWorldScaffold()}
                     disabled={storyWorldAiStatus === "running"}
                     className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 disabled:opacity-40"
@@ -74,6 +85,32 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   </button>
                 </div>
               </div>
+
+              {worldAgentRuns.length > 0 && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <h4 className="text-sm font-semibold text-slate-900">{t("bible.worldCheckpoints")}</h4>
+                  <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {worldAgentRuns.map((run) => {
+                      const statusClass =
+                        run.status === "ok"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : run.status === "failed"
+                            ? "bg-rose-100 text-rose-800"
+                            : run.status === "running"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-slate-100 text-slate-600";
+                      return (
+                        <li key={run.id} className="flex items-center gap-1" title={run.error}>
+                          <span className={`rounded-full px-2 py-0.5 font-semibold ${statusClass}`}>
+                            {run.label}
+                          </span>
+                          {run.ms != null && <span className="text-[11px] text-slate-400">{run.ms} ms</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               {storyBibleAiMessage && (
                 <p className="mt-3 text-sm text-emerald-700">{storyBibleAiMessage}</p>
               )}

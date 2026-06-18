@@ -45,9 +45,13 @@ import {
   parseStoryBibleSuggestion,
 } from "@/app/lib/ai/storyBible";
 import {
+  buildStoryWorldSectionContext,
   buildStoryWorldSuggestionContext,
   buildStoryWorldSuggestionInput,
   parseStoryWorldSuggestion,
+  STORY_WORLD_SECTIONS,
+  storyWorldSectionLabel,
+  type StoryWorldSectionKey,
   type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
 import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
@@ -178,6 +182,9 @@ export function useWorkspaceController(projectId: string) {
   const [chapterDraftConcurrentStatus, setChapterDraftConcurrentStatus] =
     useState<"idle" | "running" | "error">("idle");
   const [sceneAgentRuns, setSceneAgentRuns] = useState<
+    Array<{ id: string; label: string; status: AgentStatus; ms?: number; error?: string }>
+  >([]);
+  const [worldAgentRuns, setWorldAgentRuns] = useState<
     Array<{ id: string; label: string; status: AgentStatus; ms?: number; error?: string }>
   >([]);
   const [selectedHistoryEntityKey, setSelectedHistoryEntityKey] = useState<string>("");
@@ -596,6 +603,100 @@ export function useWorkspaceController(projectId: string) {
   function discardStoryBibleSuggestion() {
     setStoryBiblePreview(null);
     setStoryBibleAiMessage("Suggestion discarded. The story bible was not changed.");
+  }
+
+  /** Concurrent multi-agent world scaffold: one small agent per bible section. */
+  async function suggestStoryWorldScaffoldConcurrent() {
+    const bundle = activeProject;
+    if (!bundle) return;
+
+    const input = buildStoryWorldSuggestionInput(bundle);
+    setStoryWorldAiStatus("running");
+    setStoryWorldAiError(null);
+    setStoryWorldAiMessage(null);
+    setStoryWorldPreview(null);
+    setWorldAgentRuns(
+      STORY_WORLD_SECTIONS.map((section) => ({
+        id: section,
+        label: storyWorldSectionLabel(section),
+        status: "pending" as AgentStatus,
+      }))
+    );
+
+    const tasks: AgentTask<StoryWorldSuggestion>[] = STORY_WORLD_SECTIONS.map((section) => ({
+      id: section,
+      label: storyWorldSectionLabel(section),
+      run: async () => {
+        const result = await runAiAction({
+          action: "brainstorm",
+          input,
+          context: buildStoryWorldSectionContext(section as StoryWorldSectionKey),
+          settings: resolved.settings,
+        });
+        await logAiAction({
+          projectId: projectIdValue,
+          action: result.action,
+          status: "completed",
+          model: result.model,
+          providerBaseUrl: result.baseUrl,
+          inputPreview: input,
+          outputPreview: result.text,
+          metadata: { feature: "story_world_section_agent", section },
+        });
+        return parseStoryWorldSuggestion(result.text);
+      },
+    }));
+
+    const outcomes = await runAgentPool(tasks, {
+      concurrency: 3,
+      onStart: ({ id }) =>
+        setWorldAgentRuns((prev) =>
+          prev.map((run) => (run.id === id ? { ...run, status: "running" } : run))
+        ),
+      onSettle: (outcome) =>
+        setWorldAgentRuns((prev) =>
+          prev.map((run) =>
+            run.id === outcome.id
+              ? { id: outcome.id, label: outcome.label, status: outcome.status, ms: outcome.ms, error: outcome.error }
+              : run
+          )
+        ),
+    });
+
+    // Generation: merge the per-section checkpoints into one reviewable proposal.
+    const merged: StoryWorldSuggestion = {
+      characters: [],
+      locations: [],
+      lore: [],
+      timeline: [],
+      relationships: [],
+    };
+    for (const outcome of outcomes) {
+      if (outcome.status !== "ok" || !outcome.data) continue;
+      merged.characters.push(...outcome.data.characters);
+      merged.locations.push(...outcome.data.locations);
+      merged.lore.push(...outcome.data.lore);
+      merged.timeline.push(...outcome.data.timeline);
+      merged.relationships.push(...outcome.data.relationships);
+    }
+
+    const total =
+      merged.characters.length +
+      merged.locations.length +
+      merged.lore.length +
+      merged.timeline.length +
+      merged.relationships.length;
+    const okCount = outcomes.filter((outcome) => outcome.status === "ok").length;
+
+    if (total === 0) {
+      setStoryWorldAiStatus("error");
+      setStoryWorldAiError(t("bible.worldAgentsEmpty"));
+      return;
+    }
+
+    setStoryWorldPreview(merged);
+    setStoryWorldAiStatus(okCount < outcomes.length ? "error" : "idle");
+    setStoryWorldAiMessage(t("bible.worldAgentsDone", { ok: okCount, total: outcomes.length }));
   }
 
   async function suggestStoryWorldScaffold() {
@@ -1793,6 +1894,8 @@ export function useWorkspaceController(projectId: string) {
     applyStoryBibleSuggestion,
     discardStoryBibleSuggestion,
     suggestStoryWorldScaffold,
+    suggestStoryWorldScaffoldConcurrent,
+    worldAgentRuns,
     applyStoryWorldSuggestion,
     discardStoryWorldSuggestion,
     autocompleteSelectedChapterDetails,
