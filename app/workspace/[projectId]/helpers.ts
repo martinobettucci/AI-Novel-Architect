@@ -6,7 +6,32 @@ import type {
   TrackedEntityType,
 } from "@/app/domain/models";
 import { downloadText } from "@/app/lib/download";
+import type { AssistantId } from "@/app/lib/ai/assistants";
 import type { MessageKey } from "@/app/i18n/messages";
+
+export const ASSISTANT_LABEL_KEY: Record<AssistantId, MessageKey> = {
+  story_architect: "assistant.story_architect.label",
+  canon_keeper: "assistant.canon_keeper.label",
+  continuity_sentinel: "assistant.continuity_sentinel.label",
+  pov_guardian: "assistant.pov_guardian.label",
+  dialogue_doctor: "assistant.dialogue_doctor.label",
+  development_editor: "assistant.development_editor.label",
+  ghostwriter: "assistant.ghostwriter.label",
+  publisher: "assistant.publisher.label",
+  launch_strategist: "assistant.launch_strategist.label",
+};
+
+export const ASSISTANT_DESC_KEY: Record<AssistantId, MessageKey> = {
+  story_architect: "assistant.story_architect.desc",
+  canon_keeper: "assistant.canon_keeper.desc",
+  continuity_sentinel: "assistant.continuity_sentinel.desc",
+  pov_guardian: "assistant.pov_guardian.desc",
+  dialogue_doctor: "assistant.dialogue_doctor.desc",
+  development_editor: "assistant.development_editor.desc",
+  ghostwriter: "assistant.ghostwriter.desc",
+  publisher: "assistant.publisher.desc",
+  launch_strategist: "assistant.launch_strategist.desc",
+};
 
 export type WorkspaceTab =
   | "plan"

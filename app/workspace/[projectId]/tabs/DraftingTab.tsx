@@ -5,7 +5,7 @@ import type { AiActionType } from "@/app/domain/models";
 import { createId } from "@/app/domain/defaults";
 import { ASSISTANTS } from "@/app/lib/ai/assistants";
 import { listChapterTrackerTypes } from "@/app/lib/ai/chapterTrackers";
-import { chapterLabel, chapterTrackerLabel, historyEntityTypeLabel, plainTextWordCount } from "../helpers";
+import { ASSISTANT_DESC_KEY, ASSISTANT_LABEL_KEY, chapterLabel, chapterTrackerLabel, historyEntityTypeLabel, plainTextWordCount } from "../helpers";
 import type { WorkspaceController } from "../useWorkspaceController";
 import { SelectedChapterDetailsCard } from "../SelectedChapterDetailsCard";
 import { CanonDeltaPanel } from "../CanonDeltaPanel";
@@ -203,14 +203,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                   <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">
-                          Per-chapter trackers
-                        </h3>
-                        <p className="text-sm text-slate-600">
-                          Compute chapter-specific states for characters, locations, lore,
-                          timelines, relationships, and progressions from all prior chapters plus
-                          the current draft.
-                        </p>
+<h3 className="text-lg font-semibold text-slate-900">{t("tracker.title")}</h3>
+<p className="text-sm text-slate-600">{t("tracker.desc")}</p>
                       </div>
                       <button
                         onClick={() => void computeSelectedChapterTrackers()}
@@ -218,8 +212,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                         className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
                       >
                         {chapterTrackersAiStatus === "running"
-                          ? "Computing..."
-                          : "Compute chapter trackers"}
+                          ? t("tracker.computing")
+                          : t("tracker.compute")}
                       </button>
                     </div>
 
@@ -246,42 +240,33 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                                 {chapterTrackerLabel(trackerType)}
                               </h4>
                               <span className="text-[11px] uppercase tracking-wide text-slate-500">
-                                {report ? "computed" : "pending"}
+                                {report ? t("tracker.computed") : t("tracker.pending")}
                               </span>
                             </div>
 
                             {report ? (
                               <div className="mt-3 space-y-3 text-sm text-slate-700">
                                 <div>
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Previous state
-                                  </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("tracker.previousState")}</p>
                                   <p className="mt-1 whitespace-pre-wrap">
                                     {report.previousState || "None captured."}
                                   </p>
                                 </div>
                                 <div>
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Chapter evolution
-                                  </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("tracker.chapterEvolution")}</p>
                                   <p className="mt-1 whitespace-pre-wrap">
                                     {report.chapterEvolution || "No evolution captured."}
                                   </p>
                                 </div>
                                 <div>
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    End-of-chapter state
-                                  </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("tracker.finalState")}</p>
                                   <p className="mt-1 whitespace-pre-wrap">
                                     {report.finalState || "No final state captured."}
                                   </p>
                                 </div>
                               </div>
                             ) : (
-                              <p className="mt-3 text-sm text-slate-600">
-                                No chapter report yet. Run the AI computation to derive this
-                                tracker for the selected chapter.
-                              </p>
+<p className="mt-3 text-sm text-slate-600">{t("tracker.noReport")}</p>
                             )}
                           </article>
                         );
@@ -291,12 +276,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <h4 className="text-sm font-semibold text-slate-900">
-                            Chapter-linked entity history
-                          </h4>
-                          <p className="text-sm text-slate-600">
-                            Parallel per-entity timeline notes stored for this chapter after recompute.
-                          </p>
+<h4 className="text-sm font-semibold text-slate-900">{t("tracker.linkedHistory")}</h4>
+<p className="text-sm text-slate-600">{t("tracker.linkedHistoryDesc")}</p>
                         </div>
                         <span className="text-[11px] uppercase tracking-wide text-slate-500">
                           {selectedChapterEntityHistory.length}{" "}
@@ -326,10 +307,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                           ))}
                         </div>
                       ) : (
-                        <p className="mt-3 text-sm text-slate-600">
-                          No per-entity timeline entries were stored for this chapter yet. Run the
-                          tracker computation after chapter details or draft text exist.
-                        </p>
+<p className="mt-3 text-sm text-slate-600">{t("tracker.noTimeline")}</p>
                       )}
                     </div>
                   </div>
@@ -340,11 +318,7 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
 <h3 className="text-lg font-semibold text-slate-900">{t("drafting.draftStudio")}</h3>
-                        <p className="text-sm text-slate-600">
-                          Write directly in the editor below or generate a full chapter draft from
-                          the story bible, tracked entities, relationships, progression history,
-                          per-entity chapter history, chapter trackers, chapter details, and scene cards.
-                        </p>
+<p className="text-sm text-slate-600">{t("studio.desc")}</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
@@ -804,8 +778,8 @@ export function DraftingTab({ ctx }: { ctx: WorkspaceController }) {
                               : "border-slate-200 hover:bg-slate-50"
                           }`}
                         >
-                          <p className="text-sm font-semibold text-slate-900">{assistant.label}</p>
-                          <p className="mt-1 text-xs text-slate-600">{assistant.description}</p>
+                          <p className="text-sm font-semibold text-slate-900">{t(ASSISTANT_LABEL_KEY[assistant.id])}</p>
+                          <p className="mt-1 text-xs text-slate-600">{t(ASSISTANT_DESC_KEY[assistant.id])}</p>
                           <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-500">
                             {assistant.action} · {assistant.focus}
                           </p>
