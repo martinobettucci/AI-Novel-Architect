@@ -94,25 +94,25 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   <dl className="mt-2 space-y-2 text-sm text-slate-800">
                     {storyBiblePreview.premise && (
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Premise</dt>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("bible.premise")}</dt>
                         <dd className="whitespace-pre-wrap">{storyBiblePreview.premise}</dd>
                       </div>
                     )}
                     {storyBiblePreview.themes && storyBiblePreview.themes.length > 0 && (
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Themes</dt>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("bible.themes")}</dt>
                         <dd>{storyBiblePreview.themes.join(", ")}</dd>
                       </div>
                     )}
                     {storyBiblePreview.stakes && (
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stakes</dt>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("bible.stakes")}</dt>
                         <dd className="whitespace-pre-wrap">{storyBiblePreview.stakes}</dd>
                       </div>
                     )}
                     {storyBiblePreview.worldRules && (
                       <div>
-                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">World rules</dt>
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("bible.worldRules")}</dt>
                         <dd className="whitespace-pre-wrap">{storyBiblePreview.worldRules}</dd>
                       </div>
                     )}
@@ -135,46 +135,42 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
               )}
               {storyWorldPreview && (
                 <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                    AI world scaffold proposal — not applied yet
-                  </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-amber-800">{t("bible.worldScaffoldProposal")}</p>
                   <ul className="mt-2 space-y-1 text-sm text-slate-800">
                     {storyWorldPreview.characters.length > 0 && (
                       <li>
-                        <span className="font-semibold">Characters ({storyWorldPreview.characters.length}):</span>{" "}
+                        <span className="font-semibold">{t("bible.scaffoldCharacters", { count: storyWorldPreview.characters.length })}</span>{" "}
                         {storyWorldPreview.characters.map((item) => item.name).join(", ")}
                       </li>
                     )}
                     {storyWorldPreview.locations.length > 0 && (
                       <li>
-                        <span className="font-semibold">Locations ({storyWorldPreview.locations.length}):</span>{" "}
+                        <span className="font-semibold">{t("bible.scaffoldLocations", { count: storyWorldPreview.locations.length })}</span>{" "}
                         {storyWorldPreview.locations.map((item) => item.name).join(", ")}
                       </li>
                     )}
                     {storyWorldPreview.lore.length > 0 && (
                       <li>
-                        <span className="font-semibold">Lore ({storyWorldPreview.lore.length}):</span>{" "}
+                        <span className="font-semibold">{t("bible.scaffoldLore", { count: storyWorldPreview.lore.length })}</span>{" "}
                         {storyWorldPreview.lore.map((item) => item.title).join(", ")}
                       </li>
                     )}
                     {storyWorldPreview.timeline.length > 0 && (
                       <li>
-                        <span className="font-semibold">Timeline ({storyWorldPreview.timeline.length}):</span>{" "}
+                        <span className="font-semibold">{t("bible.scaffoldTimeline", { count: storyWorldPreview.timeline.length })}</span>{" "}
                         {storyWorldPreview.timeline.map((item) => item.label).join(", ")}
                       </li>
                     )}
                     {storyWorldPreview.relationships.length > 0 && (
                       <li>
-                        <span className="font-semibold">Relationships ({storyWorldPreview.relationships.length}):</span>{" "}
+                        <span className="font-semibold">{t("bible.scaffoldRelationships", { count: storyWorldPreview.relationships.length })}</span>{" "}
                         {storyWorldPreview.relationships
                           .map((item) => `${item.source} → ${item.relationType} → ${item.target}`)
                           .join(" · ")}
                       </li>
                     )}
                   </ul>
-                  <p className="mt-2 text-xs text-slate-600">
-                    Existing entities with the same name are updated, new ones are created. Nothing is deleted.
-                  </p>
+<p className="mt-2 text-xs text-slate-600">{t("bible.scaffoldNote")}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       onClick={() => void applyStoryWorldSuggestion()}
@@ -260,13 +256,9 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">{t("bible.entityHistory")}</h2>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Story-wide entities stay global here. Their chapter-by-chapter history is tracked in a parallel timeline store and visualized below.
-                  </p>
+<p className="mt-1 text-sm text-slate-600">{t("bible.historyDesc")}</p>
                 </div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Compute from Drafting
-                </p>
+<p className="text-xs uppercase tracking-wide text-slate-500">{t("bible.computeFromDrafting")}</p>
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
@@ -290,9 +282,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Story-wide record
-                          </p>
+<p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("bible.storyWideRecord")}</p>
                           <p className="mt-1 text-sm font-semibold text-slate-900">
                             {selectedHistoryEntity.label}
                           </p>
@@ -320,23 +310,19 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                               <div className="mt-2 space-y-2">
                                 {entries.map((entry) => (
                                   <p key={entry.id} className="text-sm text-slate-700">
-                                    {entry.note || "No history note recorded."}
+                                    {entry.note || t("bible.noHistoryNote")}
                                   </p>
                                 ))}
                               </div>
                             ) : (
-                              <p className="mt-2 text-sm text-slate-500">
-                                No chapter-linked history recorded for this entity in this chapter.
-                              </p>
+<p className="mt-2 text-sm text-slate-500">{t("bible.noChapterHistory")}</p>
                             )}
                           </div>
                         ))}
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-slate-600">
-                      Add story-wide entities or relationships to start building a chapter timeline.
-                    </p>
+<p className="text-sm text-slate-600">{t("bible.addStoryWide")}</p>
                   )}
                 </div>
               </div>
@@ -775,9 +761,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   {t("bible.addProgression")}
                 </button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
-                Track start state, evidence, delta, end state, knowledge, belief, inventory, and narration status chapter by chapter.
-              </p>
+<p className="mt-2 text-sm text-slate-600">{t("bible.progressionDesc")}</p>
               <div className="mt-3 space-y-3">
                 {activeProject.entityProgression.map((entry) => (
                   <div key={entry.id} className="rounded-lg border border-slate-200 p-3">
@@ -1029,9 +1013,7 @@ export function BibleTab({ ctx }: { ctx: WorkspaceController }) {
                   </div>
                 ))}
                 {progressionByEntity.length === 0 && (
-                  <p className="text-sm text-slate-600">
-                    No progression history yet. Add entries to track canon changes chapter by chapter.
-                  </p>
+<p className="text-sm text-slate-600">{t("bible.noProgression")}</p>
                 )}
               </div>
             </article>
