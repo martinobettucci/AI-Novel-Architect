@@ -51,6 +51,7 @@ import {
   type StoryWorldSuggestion,
 } from "@/app/lib/ai/storyBibleFollowup";
 import { buildPreviewApply, runAiAction } from "@/app/lib/ai/client";
+import { replaceInHtmlText } from "@/app/lib/html";
 import {
   DEFAULT_ORCHESTRATION_POLICY,
   runChapterOrchestration,
@@ -290,9 +291,9 @@ export function useWorkspaceController(projectId: string) {
     for (const chapter of bundle.chapters) {
       const source =
         chapter.id === selectedChapter?.id && editor ? editor.getHTML() : chapter.content;
-      if (!source.includes(searchText)) continue;
-      const occurrences = source.split(searchText).length - 1;
-      const nextContent = source.split(searchText).join(replaceText);
+      // Replace only within text content, never inside HTML tags/attributes.
+      const { html: nextContent, count } = replaceInHtmlText(source, searchText, replaceText);
+      if (count === 0) continue;
       await saveChapter({
         ...chapter,
         content: nextContent,
@@ -300,14 +301,14 @@ export function useWorkspaceController(projectId: string) {
       if (chapter.id === selectedChapter?.id) {
         setEditorContent(nextContent);
       }
-      replacedCount += occurrences;
+      replacedCount += count;
       chapterCount += 1;
     }
 
     setSearchReplaceMessage(
       replacedCount === 0
-        ? `No match found for "${searchText}".`
-        : `Replaced ${replacedCount} occurrence${replacedCount > 1 ? "s" : ""} in ${chapterCount} chapter${chapterCount > 1 ? "s" : ""}.`
+        ? t("drafting.searchNoMatch", { term: searchText })
+        : t("drafting.searchReplaced", { count: replacedCount, chapters: chapterCount })
     );
   }
 
