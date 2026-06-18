@@ -1,6 +1,6 @@
 "use client";
 
-import { chapterLabel, sceneLabel } from "../helpers";
+import { chapterLabel, continuityKey, sceneLabel } from "../helpers";
 import type { WorkspaceController } from "../useWorkspaceController";
 import { SelectedChapterDetailsCard } from "../SelectedChapterDetailsCard";
 
@@ -70,7 +70,7 @@ export function PlanTab({ ctx }: { ctx: WorkspaceController }) {
                       <span className="mr-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold uppercase">
                         {conflict.type}
                       </span>
-                      {conflict.message}
+                      {t(continuityKey(conflict.code), conflict.params)}
                     </li>
                   ))}
                 </ul>

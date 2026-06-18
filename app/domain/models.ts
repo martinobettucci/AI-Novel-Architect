@@ -429,10 +429,30 @@ export interface MarketingArtifacts {
   launchChecklist: string[];
 }
 
+export type ContinuityCode =
+  | "scene_missing_chapter"
+  | "scene_unknown_character"
+  | "scene_unknown_location"
+  | "relationship_missing_entity"
+  | "progression_missing_entity"
+  | "progression_delta_no_evidence"
+  | "history_missing_chapter"
+  | "history_missing_relationship"
+  | "history_missing_entity"
+  | "no_world_rules"
+  | "no_timeline"
+  | "pov_unassigned"
+  | "pov_deleted_character"
+  | "pov_not_present";
+
 export interface ContinuityConflict {
   id: string;
   type: "character" | "timeline" | "world";
+  /** English message (also used verbatim in AI prompts). */
   message: string;
+  /** Stable code + params so the UI can render a localized message. */
+  code: ContinuityCode;
+  params?: Record<string, string>;
   chapterId?: string;
 }
 

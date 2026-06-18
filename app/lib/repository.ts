@@ -1789,6 +1789,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         id: createId("conflict"),
         type: "timeline",
         message: `Scene "${scene.title}" references a missing chapter.`,
+        code: "scene_missing_chapter",
+        params: { title: scene.title },
       });
     }
 
@@ -1800,6 +1802,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
           type: "character",
           chapterId: scene.chapterId,
           message: `Scene "${scene.title}" references unknown character "${name}".`,
+          code: "scene_unknown_character",
+          params: { title: scene.title, name },
         });
       }
     });
@@ -1810,6 +1814,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         type: "world",
         chapterId: scene.chapterId,
         message: `Scene "${scene.title}" references unknown location "${scene.location}".`,
+        code: "scene_unknown_location",
+        params: { title: scene.title, location: scene.location },
       });
     }
   });
@@ -1822,6 +1828,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         id: createId("conflict"),
         type: "timeline",
         message: `Relationship "${relationship.relationType || "untitled"}" references a missing entity.`,
+        code: "relationship_missing_entity",
+        params: { type: relationship.relationType || "untitled" },
       });
     }
   });
@@ -1833,6 +1841,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         type: "timeline",
         chapterId: entry.chapterId,
         message: `Progression entry "${entry.label || "untitled"}" references a missing entity.`,
+        code: "progression_missing_entity",
+        params: { label: entry.label || "untitled" },
       });
     }
 
@@ -1842,6 +1852,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         type: "world",
         chapterId: entry.chapterId,
         message: `Progression entry "${entry.label || "untitled"}" has a delta without evidence.`,
+        code: "progression_delta_no_evidence",
+        params: { label: entry.label || "untitled" },
       });
     }
   });
@@ -1853,6 +1865,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         type: "timeline",
         chapterId: entry.chapterId,
         message: `Entity history entry "${entry.label || "untitled"}" references a missing chapter.`,
+        code: "history_missing_chapter",
+        params: { label: entry.label || "untitled" },
       });
     }
 
@@ -1863,6 +1877,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
           type: "timeline",
           chapterId: entry.chapterId,
           message: `Entity history entry "${entry.label || "untitled"}" references a missing relationship.`,
+          code: "history_missing_relationship",
+          params: { label: entry.label || "untitled" },
         });
       }
       return;
@@ -1874,6 +1890,8 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
         type: "timeline",
         chapterId: entry.chapterId,
         message: `Entity history entry "${entry.label || "untitled"}" references a missing entity.`,
+        code: "history_missing_entity",
+        params: { label: entry.label || "untitled" },
       });
     }
   });
@@ -1883,6 +1901,7 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
       id: createId("conflict"),
       type: "world",
       message: "Story bible has no world rules defined.",
+      code: "no_world_rules",
     });
   }
 
@@ -1891,6 +1910,7 @@ export function computeContinuityConflicts(bundle: ProjectBundle): ContinuityCon
       id: createId("conflict"),
       type: "timeline",
       message: "Project has no timeline events.",
+      code: "no_timeline",
     });
   }
 
@@ -1918,6 +1938,8 @@ export function detectPovIssues(bundle: ProjectBundle): ContinuityConflict[] {
           type: "character",
           chapterId: scene.chapterId,
           message: `Scene "${sceneTitle}" has characters but no point-of-view character assigned.`,
+          code: "pov_unassigned",
+          params: { scene: sceneTitle },
         });
       }
       return;
@@ -1930,6 +1952,8 @@ export function detectPovIssues(bundle: ProjectBundle): ContinuityConflict[] {
         type: "character",
         chapterId: scene.chapterId,
         message: `Scene "${sceneTitle}" points of view a character that no longer exists.`,
+        code: "pov_deleted_character",
+        params: { scene: sceneTitle },
       });
       return;
     }
@@ -1943,6 +1967,8 @@ export function detectPovIssues(bundle: ProjectBundle): ContinuityConflict[] {
         type: "character",
         chapterId: scene.chapterId,
         message: `Scene "${sceneTitle}" is told from "${povName}", who is not listed among the scene's characters.`,
+        code: "pov_not_present",
+        params: { scene: sceneTitle, pov: povName },
       });
     }
   });

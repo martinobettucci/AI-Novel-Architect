@@ -5,9 +5,14 @@ import type {
   Scene,
   TrackedEntityType,
 } from "@/app/domain/models";
+import type { ContinuityCode } from "@/app/domain/models";
 import { downloadText } from "@/app/lib/download";
 import type { AssistantId } from "@/app/lib/ai/assistants";
 import type { MessageKey } from "@/app/i18n/messages";
+
+export function continuityKey(code: ContinuityCode): MessageKey {
+  return `continuity.${code}` as MessageKey;
+}
 
 export const ASSISTANT_LABEL_KEY: Record<AssistantId, MessageKey> = {
   story_architect: "assistant.story_architect.label",
