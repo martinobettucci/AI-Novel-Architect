@@ -2087,6 +2087,63 @@ export async function exportProjectAsMarkdown(projectId: string): Promise<string
   ].join("\n");
 }
 
+export interface CompileOptions {
+  /** Chapter ids to include; output is always emitted in chapter-number order. */
+  chapterIds: string[];
+  includeFrontMatter: boolean;
+  /** "chapter" = chapter body text; "scenes" = concatenated scene draft seeds. */
+  sceneMode: "chapter" | "scenes";
+}
+
+/**
+ * Compile a manuscript Markdown string from a selection of chapters, drawing
+ * either chapter body text or per-scene draft text. Pure and unit-tested.
+ */
+export function compileManuscript(bundle: ProjectBundle, options: CompileOptions): string {
+  const selected = new Set(options.chapterIds);
+  const chapters = bundle.chapters
+    .filter((chapter) => selected.has(chapter.id))
+    .slice()
+    .sort((a, b) => a.number - b.number);
+
+  const parts: string[] = [];
+
+  if (options.includeFrontMatter) {
+    parts.push(
+      `# ${bundle.project.title || "Untitled"}`,
+      "",
+      `${bundle.project.genre} · ${bundle.project.audience}`,
+      "",
+      bundle.project.synopsis || bundle.bible.premise || "",
+      "",
+      "---",
+      ""
+    );
+  }
+
+  for (const chapter of chapters) {
+    parts.push(`## ${chapter.number}. ${chapter.title.trim() || "Untitled chapter"}`, "");
+
+    if (options.sceneMode === "scenes") {
+      const scenes = bundle.scenes
+        .filter((scene) => scene.chapterId === chapter.id)
+        .slice()
+        .sort((a, b) => a.order - b.order);
+      for (const scene of scenes) {
+        const body = plainText(scene.draftText) || scene.description.trim();
+        if (!body) continue;
+        if (scene.title.trim()) parts.push(`### ${scene.title.trim()}`, "");
+        parts.push(body, "");
+      }
+    } else {
+      const body = plainText(chapter.content);
+      parts.push(body || "_(empty chapter)_", "");
+    }
+  }
+
+  return parts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export async function exportProjectBackup(projectId: string): Promise<Blob> {
   const bundle = await getProjectBundle(projectId);
   if (!bundle) {

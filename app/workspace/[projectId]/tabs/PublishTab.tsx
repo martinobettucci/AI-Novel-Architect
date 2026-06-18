@@ -1,6 +1,7 @@
 "use client";
 
 import { downloadBlob, downloadText } from "@/app/lib/download";
+import { CompilePanel } from "../CompilePanel";
 import type { WorkspaceController } from "../useWorkspaceController";
 
 export function PublishTab({ ctx }: { ctx: WorkspaceController }) {
@@ -54,6 +55,8 @@ export function PublishTab({ ctx }: { ctx: WorkspaceController }) {
                 </button>
               </div>
             </article>
+
+            <CompilePanel ctx={ctx} />
 
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
               <h3 className="text-lg font-semibold text-slate-900">{t("publish.metadataSheet")}</h3>

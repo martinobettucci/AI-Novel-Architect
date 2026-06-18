@@ -2,6 +2,7 @@
 
 import { asProjectLanguage } from "../helpers";
 import { ProvenancePanel } from "../ProvenancePanel";
+import { SnapshotComparePanel } from "../SnapshotComparePanel";
 import type { WorkspaceController } from "../useWorkspaceController";
 
 export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
@@ -191,6 +192,7 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
               </ul>
             </article>
 
+            <SnapshotComparePanel ctx={ctx} />
             <ProvenancePanel ctx={ctx} />
           </section>
   );
