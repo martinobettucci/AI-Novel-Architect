@@ -1,8 +1,26 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { applyMerge, buildMergeSegments, type MergeChoice } from "@/app/lib/snapshotMerge";
+import {
+  applyMerge,
+  blockToPlainText,
+  buildMergeSegments,
+  type MergeChoice,
+} from "@/app/lib/snapshotMerge";
 import type { WorkspaceController } from "./useWorkspaceController";
+
+/**
+ * Render one side of a hunk as text nodes. Block contents originate from model
+ * output or from an imported backup, so they are never injected as HTML.
+ */
+function HunkSide({ lines }: { lines: string[] }) {
+  const blocks = lines.map(blockToPlainText).filter(Boolean);
+  return (
+    <div className="prose-view max-w-none whitespace-pre-wrap text-slate-700">
+      {blocks.length === 0 ? <p>—</p> : blocks.map((block, index) => <p key={index}>{block}</p>)}
+    </div>
+  );
+}
 
 export function SnapshotComparePanel({ ctx }: { ctx: WorkspaceController }) {
   const { t, activeProject, saveChapter } = ctx;
@@ -99,17 +117,11 @@ export function SnapshotComparePanel({ ctx }: { ctx: WorkspaceController }) {
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className={`rounded border p-2 text-xs ${side === "snapshot" ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
                       <p className="mb-1 font-semibold text-slate-500">{t("snapshot.useSnapshot")}</p>
-                      <div
-                        className="prose-view max-w-none text-slate-700"
-                        dangerouslySetInnerHTML={{ __html: segment.snapshotLines.join("") || "—" }}
-                      />
+                      <HunkSide lines={segment.snapshotLines} />
                     </div>
                     <div className={`rounded border p-2 text-xs ${side === "current" ? "border-teal-300 bg-teal-50" : "border-slate-200 bg-slate-50"}`}>
                       <p className="mb-1 font-semibold text-slate-500">{t("snapshot.useCurrent")}</p>
-                      <div
-                        className="prose-view max-w-none text-slate-700"
-                        dangerouslySetInnerHTML={{ __html: segment.currentLines.join("") || "—" }}
-                      />
+                      <HunkSide lines={segment.currentLines} />
                     </div>
                   </div>
                 </div>

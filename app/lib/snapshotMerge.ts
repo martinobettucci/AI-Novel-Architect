@@ -19,6 +19,30 @@ export function blocksToHtml(blocks: string[]): string {
   return blocks.join("");
 }
 
+const TAG = /<[^>]*>/g;
+const ENTITIES: Record<string, string> = {
+  "&nbsp;": " ",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&amp;": "&",
+};
+
+/**
+ * Reduce a block of rich-text HTML to its readable text. Used by the compare UI,
+ * which renders both sides as text nodes: block markup coming from the model (or
+ * from an imported backup) must never be injected into the DOM.
+ */
+export function blockToPlainText(block: string): string {
+  return block
+    .replace(TAG, "")
+    .replace(/&nbsp;|&quot;|&#39;|&apos;|&lt;|&gt;|&amp;/g, (match) => ENTITIES[match] ?? match)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export interface MergeSegment {
   id: number;
   /** True when both versions agree on this block. */

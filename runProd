@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://192.168.0.37:11434}"
-export OPENAI_MODEL="${OPENAI_MODEL:-gpt-oss:20b}"
+# Endpoint/model come from the environment (or the gitignored .env that compose
+# reads automatically) — no host or model is hardcoded here.
+if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+  export OPENAI_BASE_URL
+fi
+if [[ -n "${OPENAI_MODEL:-}" ]]; then
+  export OPENAI_MODEL
+fi
 
 docker compose -f docker-compose.prod.yml up --build -d --remove-orphans
 docker compose -f docker-compose.prod.yml logs -f app

@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Stale build backups (.next.bak-root/…) are generated output, not source.
+    ".next.bak*/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
