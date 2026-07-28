@@ -22,57 +22,38 @@ export function SettingsTab({ ctx }: { ctx: WorkspaceController }) {
             <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
               <h2 className="text-xl font-semibold text-slate-900">{t("settings.modelConfig")}</h2>
               <div className="mt-3 grid gap-2">
+                {/* Endpoint, model, and key are server configuration — shown here,
+                    not edited, so they never pass through the browser. */}
+                <dl className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <div className="grid gap-0.5">
+                    <dt className="text-slate-500">{t("settings.baseUrl")}</dt>
+                    <dd className="break-all font-mono text-slate-800">
+                      {resolved.settings.llm.baseUrl || "—"}
+                    </dd>
+                  </div>
+                  <div className="grid gap-0.5">
+                    <dt className="text-slate-500">{t("settings.model")}</dt>
+                    <dd className="font-mono text-slate-800">
+                      {resolved.settings.llm.model || "—"}
+                    </dd>
+                  </div>
+                </dl>
                 <label className="grid gap-1 text-sm text-slate-700">
-                  {t("settings.baseUrl")}
+                  {t("settings.maxTokens")}
                   <input
-                    value={resolved.settings.llm.baseUrl}
+                    type="number"
+                    min={256}
+                    max={32000}
+                    step={256}
+                    value={resolved.settings.llm.maxTokens}
                     onChange={(event) =>
                       void saveScope(
                         "project",
                         {
                           llm: {
                             ...resolved.settings.llm,
-                            baseUrl: event.target.value,
-                          },
-                        },
-                        projectIdValue
-                      )
-                    }
-                    className="rounded border border-slate-300 px-2 py-1"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm text-slate-700">
-                  {t("settings.model")}
-                  <input
-                    value={resolved.settings.llm.model}
-                    onChange={(event) =>
-                      void saveScope(
-                        "project",
-                        {
-                          llm: {
-                            ...resolved.settings.llm,
-                            model: event.target.value,
-                          },
-                        },
-                        projectIdValue
-                      )
-                    }
-                    className="rounded border border-slate-300 px-2 py-1"
-                  />
-                </label>
-                <label className="grid gap-1 text-sm text-slate-700">
-                  {t("settings.apiKey")}
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={resolved.settings.llm.apiKey ?? ""}
-                    onChange={(event) =>
-                      void saveScope(
-                        "project",
-                        {
-                          llm: {
-                            ...resolved.settings.llm,
-                            apiKey: event.target.value,
+                            maxTokens:
+                              Number(event.target.value) || resolved.settings.llm.maxTokens,
                           },
                         },
                         projectIdValue

@@ -4,3 +4,12 @@
 node_modules
 npm-debug.log
 README.md
+
+# Never bake local secrets into a build layer. Compose still reads .env from the
+# host for interpolation, and dev gets it through the bind mount.
+.env
+.env.*
+!.env.example
+coverage
+tests
+

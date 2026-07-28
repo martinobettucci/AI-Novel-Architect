@@ -18,8 +18,20 @@ import type {
   WritingSession,
 } from "./models";
 
-export const DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434";
-export const DEFAULT_LLM_MODEL = "gpt-oss:20b";
+/**
+ * Placeholders shown until the UI has fetched the server's real configuration
+ * from /api/ai/config. The endpoint and model are decided by the deployment;
+ * these are display defaults only and are never sent upstream.
+ */
+export const DEFAULT_LLM_BASE_URL = "";
+export const DEFAULT_LLM_MODEL = "";
+
+/**
+ * Reasoning models bill their thinking tokens against max_tokens, so a budget
+ * sized for the visible answer alone comes back empty or truncated. Chain-of-
+ * thought is disabled server-side, which leaves this comfortable for prose.
+ */
+export const DEFAULT_LLM_MAX_TOKENS = 4000;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   locale: "fr",
@@ -28,7 +40,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     baseUrl: DEFAULT_LLM_BASE_URL,
     model: DEFAULT_LLM_MODEL,
     temperature: 0.6,
-    maxTokens: 2200,
+    maxTokens: DEFAULT_LLM_MAX_TOKENS,
   },
   prompts: {
     systemPrompt:

@@ -31,6 +31,7 @@ export default function SettingsPage() {
   const refreshProjects = useProjectStore((state) => state.refreshProjects);
 
   const resolved = useSettingsStore((state) => state.resolved);
+  const serverConfig = useSettingsStore((state) => state.serverConfig);
   const loadSettings = useSettingsStore((state) => state.load);
   const saveScope = useSettingsStore((state) => state.saveScope);
   const resetScope = useSettingsStore((state) => state.resetScope);
@@ -46,23 +47,10 @@ export default function SettingsPage() {
     void loadSettings();
   }, [loadSettings, refreshProjects]);
 
-  function llmHeaders(): Record<string, string> {
-    return {
-      "x-openai-base-url": resolved.settings.llm.baseUrl,
-      "x-openai-model": resolved.settings.llm.model,
-      ...(resolved.settings.llm.apiKey
-        ? { "x-openai-api-key": resolved.settings.llm.apiKey }
-        : {}),
-    };
-  }
-
   async function checkHealth() {
     setHealthLoading(true);
     try {
-      const res = await fetch("/api/ai/health", {
-        cache: "no-store",
-        headers: llmHeaders(),
-      });
+      const res = await fetch("/api/ai/health", { cache: "no-store" });
       const payload = (await res.json()) as HealthResponse;
       setHealth(payload);
     } catch (error) {
@@ -79,10 +67,7 @@ export default function SettingsPage() {
     setModelsError(null);
     setModelsLoading(true);
     try {
-      const res = await fetch("/api/ai/models", {
-        cache: "no-store",
-        headers: llmHeaders(),
-      });
+      const res = await fetch("/api/ai/models", { cache: "no-store" });
 
       const payload = (await res.json()) as ModelsResponse;
       if (!res.ok) {
@@ -110,7 +95,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen pb-10">
       <TopNav />
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+      <main className="w-full px-6 py-8 lg:px-8">
         <h1 className="text-3xl font-bold text-slate-900">{t("settings.title")}</h1>
         <p className="mt-2 text-sm text-slate-600">
           Global control center for providers, models, prompt presets, QA rules, and backup policy.
@@ -119,31 +104,66 @@ export default function SettingsPage() {
         <section className="mt-6 grid gap-4 lg:grid-cols-2">
           <article className="rounded-2xl border border-slate-200 bg-white/90 p-5">
             <h2 className="text-xl font-semibold text-slate-900">Global AI profile</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              The endpoint, model, and credentials are set on the server
+              (<code>OPENAI_BASE_URL</code>, <code>OPENAI_MODEL</code>, <code>OPENAI_API_KEY</code>)
+              so they never travel through the browser.
+            </p>
+            <dl className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="grid gap-0.5">
+                <dt className="text-slate-500">Endpoint</dt>
+                <dd className="break-all font-mono text-slate-800">
+                  {serverConfig?.baseUrl || "Not configured"}
+                </dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-slate-500">Model</dt>
+                <dd className="font-mono text-slate-800">{serverConfig?.model || "Not configured"}</dd>
+              </div>
+              <div className="grid gap-0.5">
+                <dt className="text-slate-500">API key</dt>
+                <dd className="text-slate-800">
+                  {serverConfig?.hasApiKey ? "Configured on the server" : "None"}
+                </dd>
+              </div>
+            </dl>
+
             <div className="mt-3 grid gap-2">
               <label className="grid gap-1 text-sm text-slate-700">
-                Base URL
+                Max tokens
                 <input
-                  value={resolved.settings.llm.baseUrl}
+                  type="number"
+                  min={256}
+                  max={32000}
+                  step={256}
+                  value={resolved.settings.llm.maxTokens}
                   onChange={(event) =>
                     void saveScope("global", {
                       llm: {
                         ...resolved.settings.llm,
-                        baseUrl: event.target.value,
+                        maxTokens: Number(event.target.value) || resolved.settings.llm.maxTokens,
                       },
                     })
                   }
                   className="rounded border border-slate-300 px-2 py-1"
                 />
+                <span className="text-xs text-slate-500">
+                  Raise this if a generation comes back cut off mid-sentence.
+                </span>
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Model
+                Temperature
                 <input
-                  value={resolved.settings.llm.model}
+                  type="number"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={resolved.settings.llm.temperature}
                   onChange={(event) =>
                     void saveScope("global", {
                       llm: {
                         ...resolved.settings.llm,
-                        model: event.target.value,
+                        temperature: Number(event.target.value),
                       },
                     })
                   }
@@ -151,54 +171,17 @@ export default function SettingsPage() {
                 />
               </label>
               {models.length > 0 && (
-                <label className="grid gap-1 text-sm text-slate-700">
-                  Available models
-                  <select
-                    value={models.includes(resolved.settings.llm.model) ? resolved.settings.llm.model : ""}
-                    onChange={(event) => {
-                      if (!event.target.value) return;
-                      void saveScope("global", {
-                        llm: {
-                          ...resolved.settings.llm,
-                          model: event.target.value,
-                        },
-                      });
-                    }}
-                    className="rounded border border-slate-300 px-2 py-1"
-                  >
-                    <option value="">Select a model</option>
-                    {models.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <p className="text-xs text-slate-500">
+                  Available on this server: {models.join(", ")}
+                </p>
               )}
-              <label className="grid gap-1 text-sm text-slate-700">
-                API key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={resolved.settings.llm.apiKey ?? ""}
-                  onChange={(event) =>
-                    void saveScope("global", {
-                      llm: {
-                        ...resolved.settings.llm,
-                        apiKey: event.target.value,
-                      },
-                    })
-                  }
-                  className="rounded border border-slate-300 px-2 py-1"
-                />
-              </label>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={() => void checkHealth()}
                 disabled={healthLoading}
-                className="rounded bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+                className="rounded bg-teal-700 hover:bg-teal-800 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
               >
                 {healthLoading ? "Checking…" : "Health check"}
               </button>

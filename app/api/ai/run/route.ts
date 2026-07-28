@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AiActionType } from "@/app/domain/models";
+import { DEFAULT_LLM_MAX_TOKENS } from "@/app/domain/defaults";
 import { buildSystemPrompt, buildUserPrompt, type AiRunRequest } from "@/app/lib/ai/prompts";
+import { callerKey, consumeToken } from "@/app/lib/rateLimit";
 import {
-  extractAssistantText,
-  openAiHeaders,
-  readApiErrorMessage,
-  readOpenAiConfigFromHeaders,
+  MISSING_CONFIG_MESSAGE,
+  isConfigured,
+  postCompletion,
+  readOpenAiConfig,
 } from "@/app/lib/openaiClient";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+/** Guard rails on client-supplied generation parameters. */
+const MAX_INPUT_CHARS = 200_000;
+const MAX_CONTEXT_CHARS = 400_000;
+const MAX_TOKEN_CEILING = 32_000;
 
 interface RunBody {
   action: AiActionType;
@@ -24,12 +31,46 @@ interface RunBody {
   responseFormat?: "text" | "json";
 }
 
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
 export async function POST(req: NextRequest) {
-  const config = readOpenAiConfigFromHeaders(req.headers);
-  const body = (await req.json()) as RunBody;
+  const limit = consumeToken(callerKey(req.headers), { ratePerMinute: 30, burst: 10 });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many AI requests. Please wait a moment." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+    );
+  }
+
+  const config = readOpenAiConfig();
+  if (!isConfigured(config)) {
+    return NextResponse.json({ error: MISSING_CONFIG_MESSAGE }, { status: 500 });
+  }
+
+  let body: RunBody;
+  try {
+    body = (await req.json()) as RunBody;
+  } catch {
+    return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
+  }
 
   if (!body.input?.trim()) {
     return NextResponse.json({ error: "Input text is required" }, { status: 400 });
+  }
+  if (body.input.length > MAX_INPUT_CHARS) {
+    return NextResponse.json(
+      { error: `Input exceeds the ${MAX_INPUT_CHARS}-character limit` },
+      { status: 413 }
+    );
+  }
+  if (body.context && body.context.length > MAX_CONTEXT_CHARS) {
+    return NextResponse.json(
+      { error: `Context exceeds the ${MAX_CONTEXT_CHARS}-character limit` },
+      { status: 413 }
+    );
   }
 
   const runReq: AiRunRequest = {
@@ -48,46 +89,57 @@ export async function POST(req: NextRequest) {
     : buildSystemPrompt(runReq);
   const userPrompt = buildUserPrompt(runReq);
 
+  const budget = clampNumber(body.maxTokens, 256, MAX_TOKEN_CEILING, DEFAULT_LLM_MAX_TOKENS);
+  // Creative temperatures measurably raise the malformed-JSON rate, so JSON mode
+  // clamps rather than defaults — the client always sends a temperature, which
+  // would make a `??` default dead code.
+  const temperature = jsonMode
+    ? Math.min(clampNumber(body.temperature, 0, 2, 0.2), 0.2)
+    : clampNumber(body.temperature, 0, 2, 0.7);
+
   try {
-    const res = await fetch(config.endpoint, {
-      method: "POST",
-      headers: openAiHeaders(config.apiKey),
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: body.temperature ?? (jsonMode ? 0.2 : 0.7),
-        max_tokens: body.maxTokens ?? 2200,
-        // OpenAI-compatible JSON mode. Servers that ignore it still get the
-        // instruction in the system prompt, and the client extracts JSON
-        // tolerantly, so this degrades gracefully.
-        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-      }),
+    const { response: res, completion } = await postCompletion(config, {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature,
+      max_tokens: budget,
+      // OpenAI-compatible JSON mode. Servers that ignore it still get the
+      // instruction in the system prompt, and the client extracts JSON
+      // tolerantly, so this degrades gracefully.
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
     });
 
-    if (!res.ok) {
-      const message = await readApiErrorMessage(res);
-      return NextResponse.json({ error: message }, { status: 502 });
+    if (!res.ok || !completion) {
+      return NextResponse.json({ error: res.error }, { status: res.status });
     }
 
-    const payload = await res.json();
-    const text = extractAssistantText(payload);
-
-    if (!text) {
-      return NextResponse.json(
-        { error: "Model returned an empty response" },
-        { status: 502 }
-      );
+    if (!completion.text) {
+      // A reasoning model that spends its whole budget thinking returns 200 with
+      // no content. Saying "empty response" sends the user hunting a gateway
+      // fault; the real fix is a bigger budget, so name that.
+      const error = completion.truncated
+        ? `The model used its entire ${budget}-token budget before producing an answer. ` +
+          `Raise "Max tokens" in AI settings (${completion.reasoningChars} characters of reasoning were generated).`
+        : "Model returned an empty response";
+      return NextResponse.json({ error }, { status: 502 });
     }
 
     return NextResponse.json({
       action: body.action,
-      text,
+      text: completion.text,
       model: config.model,
       baseUrl: config.baseUrl,
       endpoint: config.endpoint,
+      // Surfaced so callers can refuse to persist a half-written result.
+      truncated: completion.truncated,
+      finishReason: completion.finishReason,
+      ...(completion.truncated
+        ? {
+            warning: `Response was cut off at the ${budget}-token limit and is incomplete. Raise "Max tokens" in AI settings.`,
+          }
+        : {}),
     });
   } catch (error) {
     return NextResponse.json(

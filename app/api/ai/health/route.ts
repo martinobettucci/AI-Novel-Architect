@@ -1,69 +1,74 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callerKey, consumeToken } from "@/app/lib/rateLimit";
 import {
-  extractAssistantText,
-  openAiHeaders,
-  readApiErrorMessage,
-  readOpenAiConfigFromHeaders,
+  MISSING_CONFIG_MESSAGE,
+  isConfigured,
+  postCompletion,
+  readOpenAiConfig,
 } from "@/app/lib/openaiClient";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const config = readOpenAiConfigFromHeaders(req.headers);
+  const limit = consumeToken(`health:${callerKey(req.headers)}`, {
+    ratePerMinute: 12,
+    burst: 4,
+  });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { status: "error", error: "Too many health checks. Please wait a moment." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+    );
+  }
+
+  const config = readOpenAiConfig();
   const startedAt = Date.now();
 
-  try {
-    const res = await fetch(config.endpoint, {
-      method: "POST",
-      headers: openAiHeaders(config.apiKey),
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content: "Reply with exactly OK" }],
-        temperature: 0,
-        max_tokens: 16,
-      }),
-    });
-
-    if (!res.ok) {
-      const message = await readApiErrorMessage(res);
-      return NextResponse.json(
-        {
-          status: "error",
-          baseUrl: config.baseUrl,
-          endpoint: config.endpoint,
-          model: config.model,
-          latencyMs: Date.now() - startedAt,
-          error: message,
-          checkedAt: new Date().toISOString(),
-        },
-        { status: 502 }
-      );
-    }
-
-    const payload = await res.json();
-    const text = extractAssistantText(payload);
-
-    return NextResponse.json({
-      status: "connected",
-      baseUrl: config.baseUrl,
-      endpoint: config.endpoint,
-      model: config.model,
-      latencyMs: Date.now() - startedAt,
-      ...(text ? {} : { warning: "Model returned empty text" }),
-      checkedAt: new Date().toISOString(),
-    });
-  } catch (error) {
+  if (!isConfigured(config)) {
     return NextResponse.json(
       {
         status: "error",
         baseUrl: config.baseUrl,
         endpoint: config.endpoint,
         model: config.model,
-        latencyMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : "Network error",
+        latencyMs: 0,
+        error: MISSING_CONFIG_MESSAGE,
         checkedAt: new Date().toISOString(),
       },
-      { status: 503 }
+      { status: 500 }
     );
   }
+
+  const { response, completion } = await postCompletion(
+    config,
+    {
+      messages: [{ role: "user", content: "Reply with exactly OK" }],
+      temperature: 0,
+      // Reasoning models bill thinking tokens against this budget, so a tiny
+      // probe returns empty text and reports a healthy gateway as degraded.
+      max_tokens: 512,
+    },
+    { timeoutMs: 60_000, attempts: 1 }
+  );
+
+  const base = {
+    baseUrl: config.baseUrl,
+    endpoint: config.endpoint,
+    model: config.model,
+    latencyMs: Date.now() - startedAt,
+    checkedAt: new Date().toISOString(),
+  };
+
+  if (!response.ok) {
+    return NextResponse.json(
+      { status: "error", ...base, error: response.error },
+      { status: response.status === 429 ? 429 : 503 }
+    );
+  }
+
+  return NextResponse.json({
+    status: "connected",
+    ...base,
+    ...(completion?.text ? {} : { warning: "Model returned empty text" }),
+  });
 }

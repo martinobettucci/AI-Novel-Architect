@@ -6,7 +6,18 @@ export interface AiRunResult {
   model: string;
   baseUrl: string;
   action: AiActionType;
+  /** The model hit its token ceiling; `text` is an incomplete answer. */
+  truncated?: boolean;
+  /** Human-readable note to show alongside a usable-but-imperfect result. */
+  warning?: string;
 }
+
+/**
+ * Ceiling for a single AI round-trip. A reasoning model on a queueing gateway
+ * can legitimately take minutes, but without a bound a stalled connection
+ * leaves the calling feature stuck "running" until the page is reloaded.
+ */
+const AI_REQUEST_TIMEOUT_MS = 300_000;
 
 export interface AiRunInput {
   action: AiActionType;
@@ -17,24 +28,14 @@ export interface AiRunInput {
   responseFormat?: "text" | "json";
 }
 
-function buildHeaders(settings: AppSettings): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "x-openai-base-url": settings.llm.baseUrl,
-    "x-openai-model": settings.llm.model,
-  };
-
-  if (settings.llm.apiKey?.trim()) {
-    headers["x-openai-api-key"] = settings.llm.apiKey.trim();
-  }
-
-  return headers;
-}
-
 export async function runAiAction(input: AiRunInput): Promise<AiRunResult> {
   const response = await fetch("/api/ai/run", {
     method: "POST",
-    headers: buildHeaders(input.settings),
+    // No endpoint, model, or key headers: those are server configuration. The
+    // browser used to send them, which let any caller redirect the server's
+    // fetch and collect the server's API key along with it.
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     body: JSON.stringify({
       action: input.action,
       input: input.input,
@@ -49,16 +50,28 @@ export async function runAiAction(input: AiRunInput): Promise<AiRunResult> {
     }),
   });
 
-  const data = (await response.json()) as {
+  // Read as text first: a proxy 504 or a Next.js error page is HTML, and
+  // `response.json()` would surface it as "Unexpected token '<'" instead of the
+  // actual status.
+  const raw = await response.text();
+  let data: {
     text?: string;
     model?: string;
     baseUrl?: string;
     action?: AiActionType;
+    truncated?: boolean;
+    warning?: string;
     error?: string;
-  };
+  } = {};
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(`HTTP ${response.status}: ${raw.slice(0, 200) || "empty response"}`);
+  }
 
   if (!response.ok || !data.text || !data.model || !data.baseUrl || !data.action) {
-    throw new Error(data.error ?? "AI request failed");
+    throw new Error(data.error ?? `AI request failed (HTTP ${response.status})`);
   }
 
   return {
@@ -66,6 +79,8 @@ export async function runAiAction(input: AiRunInput): Promise<AiRunResult> {
     model: data.model,
     baseUrl: data.baseUrl,
     action: data.action,
+    truncated: data.truncated,
+    warning: data.warning,
   };
 }
 

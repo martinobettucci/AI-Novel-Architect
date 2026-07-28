@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callerKey, consumeToken } from "@/app/lib/rateLimit";
 import {
+  MISSING_CONFIG_MESSAGE,
+  isConfigured,
   openAiHeaders,
   readApiErrorMessage,
-  readOpenAiConfigFromHeaders,
+  readOpenAiConfig,
 } from "@/app/lib/openaiClient";
 
 export const runtime = "nodejs";
@@ -14,12 +17,27 @@ interface RawModel {
 }
 
 export async function GET(req: NextRequest) {
-  const config = readOpenAiConfigFromHeaders(req.headers);
+  const limit = consumeToken(`models:${callerKey(req.headers)}`, {
+    ratePerMinute: 12,
+    burst: 4,
+  });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+    );
+  }
+
+  const config = readOpenAiConfig();
+  if (!isConfigured(config)) {
+    return NextResponse.json({ error: MISSING_CONFIG_MESSAGE }, { status: 500 });
+  }
 
   try {
     const res = await fetch(config.modelsEndpoint, {
       method: "GET",
       headers: openAiHeaders(config.apiKey),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {
