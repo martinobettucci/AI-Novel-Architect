@@ -5,12 +5,13 @@ services:
       context: .
       target: dev
     environment:
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://192.168.0.37:11434}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-oss:20b}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://llm.lelabs.tech:21434}
+      OPENAI_MODEL: ${OPENAI_MODEL:-ornith:9b}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "${APP_PORT:-3000}:3000"
+      # Loopback by default: set APP_BIND=0.0.0.0 to expose it on the LAN.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"
     volumes:
       - .:/app
       - ./node_modules:/app/node_modules
