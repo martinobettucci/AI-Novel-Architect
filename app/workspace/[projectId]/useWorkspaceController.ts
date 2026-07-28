@@ -87,6 +87,13 @@ import { useEditorBinding } from "./useEditorBinding";
 import { useOnlineStatus } from "./useOnlineStatus";
 import { useWorkspaceSelectors } from "./useWorkspaceSelectors";
 
+/** Outcome of one scene-drafting agent: the prose it wrote plus its honesty flag. */
+interface SceneDraftAgentResult {
+  text: string;
+  /** The model hit its token ceiling; `text` is an incomplete scene. */
+  truncated: boolean;
+}
+
 export function useWorkspaceController(projectId: string) {
   const { t } = useI18n();
 
@@ -648,7 +655,9 @@ export function useWorkspaceController(projectId: string) {
     }));
 
     const outcomes = await runAgentPool(tasks, {
-      concurrency: 3,
+      // The gateway serializes generations, so a wider pool buys no throughput
+      // and only stretches the tail latency of the slowest section.
+      concurrency: 1,
       onStart: ({ id }) =>
         setWorldAgentRuns((prev) =>
           prev.map((run) => (run.id === id ? { ...run, status: "running" } : run))
@@ -687,10 +696,37 @@ export function useWorkspaceController(projectId: string) {
       merged.timeline.length +
       merged.relationships.length;
     const okCount = outcomes.filter((outcome) => outcome.status === "ok").length;
+    const failedOutcomes = outcomes.filter((outcome) => outcome.status !== "ok");
+
+    // Each failed section agent gets its own provenance row, like every other
+    // AI feature; without it this path left no trace in `ai_actions` at all.
+    for (const outcome of failedOutcomes) {
+      await logAiAction({
+        projectId: projectIdValue,
+        action: "brainstorm",
+        status: "failed",
+        model: resolved.settings.llm.model,
+        providerBaseUrl: resolved.settings.llm.baseUrl,
+        inputPreview: input,
+        outputPreview: "",
+        metadata: {
+          feature: "story_world_section_agent",
+          section: outcome.id,
+          error: outcome.error ?? "unknown",
+        },
+      });
+    }
+    if (failedOutcomes.length > 0) {
+      await openProject(projectIdValue);
+    }
 
     if (total === 0) {
+      // Surface the real failure instead of only the generic "no entities" line.
+      const firstError = failedOutcomes.find((outcome) => outcome.error)?.error;
       setStoryWorldAiStatus("error");
-      setStoryWorldAiError(t("bible.worldAgentsEmpty"));
+      setStoryWorldAiError(
+        firstError ? `${t("bible.worldAgentsEmpty")} ${firstError}` : t("bible.worldAgentsEmpty")
+      );
       return;
     }
 
@@ -1089,19 +1125,27 @@ export function useWorkspaceController(projectId: string) {
         });
       }
 
-      await replaceEntityHistoryForChapterAction(
-        selectedChapter.id,
-        parsed.entityHistory.map((entry) => ({
-          id: "",
-          projectId: projectIdValue,
-          chapterId: selectedChapter.id,
-          entityType: entry.entityType,
-          entityId: entry.entityId,
-          label: entry.label,
-          note: entry.note,
-          updatedAt: new Date().toISOString(),
-        }))
-      );
+      // `replaceEntityHistoryForChapter` deletes every existing row for the
+      // chapter before writing the parsed set, so it is only safe on a complete
+      // answer: a response cut off before the `[Entity History]` section parses
+      // to `[]` and would destroy curated history behind a success toast.
+      const historyReplaced = !result.truncated && parsed.entityHistory.length > 0;
+
+      if (historyReplaced) {
+        await replaceEntityHistoryForChapterAction(
+          selectedChapter.id,
+          parsed.entityHistory.map((entry) => ({
+            id: "",
+            projectId: projectIdValue,
+            chapterId: selectedChapter.id,
+            entityType: entry.entityType,
+            entityId: entry.entityId,
+            label: entry.label,
+            note: entry.note,
+            updatedAt: new Date().toISOString(),
+          }))
+        );
+      }
 
       await logAiAction({
         projectId: projectIdValue,
@@ -1115,13 +1159,20 @@ export function useWorkspaceController(projectId: string) {
         metadata: {
           feature: "chapter_tracker_computation",
           chapterNumber: selectedChapter.number,
+          truncated: result.truncated ?? false,
+          entityHistoryReplaced: historyReplaced,
+          entityHistoryEntries: parsed.entityHistory.length,
         },
       });
 
       await openProject(projectIdValue);
       setChapterTrackersAiStatus("idle");
       setChapterTrackersAiMessage(
-        "Per-chapter trackers and entity history timelines were recomputed from prior chapters and the current draft."
+        historyReplaced
+          ? "Per-chapter trackers and entity history timelines were recomputed from prior chapters and the current draft."
+          : result.truncated
+            ? "Per-chapter trackers were updated, but the model response was cut off before the entity history section. The existing entity history timelines were kept unchanged — re-run with a higher token limit to refresh them."
+            : "Per-chapter trackers were updated, but the response contained no entity history entries. The existing entity history timelines were kept unchanged."
       );
     } catch (error) {
       const errorMessage =
@@ -1424,9 +1475,9 @@ export function useWorkspaceController(projectId: string) {
     setChapterDraftAiMessage(t("draft.assembledFromScenes"));
   }
 
-  async function runSceneDraftAgent(scene: Scene): Promise<string> {
+  async function runSceneDraftAgent(scene: Scene): Promise<SceneDraftAgentResult> {
     const bundle = activeProject;
-    if (!bundle || !selectedChapter) return "";
+    if (!bundle || !selectedChapter) return { text: "", truncated: false };
     const input = buildSceneDraftInput(bundle, selectedChapter.id, scene.id);
     const context = buildSceneDraftContext();
     const result = await runAiAction({
@@ -1435,6 +1486,33 @@ export function useWorkspaceController(projectId: string) {
       context,
       settings: resolved.settings,
     });
+
+    const existingProse = scene.draftText.trim();
+    const generated = result.text.trim();
+
+    // This agent writes straight to the scene card with no preview, so it must
+    // never trade authored prose for an unusable answer: a cut-off or empty
+    // response is reported as a failed checkpoint and the card is left alone.
+    if (existingProse && (result.truncated || !generated)) {
+      throw new Error(
+        result.truncated
+          ? "The model response was cut off; the existing scene draft was kept."
+          : "The model returned no prose; the existing scene draft was kept."
+      );
+    }
+
+    if (existingProse) {
+      // Safety copy before an unattended overwrite, mirroring `applyAiDraft`.
+      // Deliberately not tied to the chapter: `restoreSnapshot` writes a
+      // snapshot payload into `chapter.content`, and a single scene's prose
+      // would clobber the whole chapter on restore.
+      await createSnapshot(
+        `Before AI scene agent ${sceneLabel(scene)} ${new Date().toLocaleTimeString()}`,
+        undefined,
+        scene.draftText
+      );
+    }
+
     await saveScene({ ...scene, draftText: result.text });
     await logAiAction({
       projectId: projectIdValue,
@@ -1449,9 +1527,10 @@ export function useWorkspaceController(projectId: string) {
         feature: "scene_draft_agent",
         chapterNumber: selectedChapter.number,
         sceneOrder: scene.order,
+        truncated: result.truncated ?? false,
       },
     });
-    return result.text;
+    return { text: result.text, truncated: result.truncated ?? false };
   }
 
   /** Concurrent multi-agent drafting: one small agent per scene, each a persisted checkpoint. */
@@ -1479,14 +1558,16 @@ export function useWorkspaceController(projectId: string) {
       scenes.map((scene) => ({ id: scene.id, label: sceneLabel(scene), status: "pending" as AgentStatus }))
     );
 
-    const tasks: AgentTask<string>[] = scenes.map((scene) => ({
+    const tasks: AgentTask<SceneDraftAgentResult>[] = scenes.map((scene) => ({
       id: scene.id,
       label: sceneLabel(scene),
       run: () => runSceneDraftAgent(scene),
     }));
 
     const outcomes = await runAgentPool(tasks, {
-      concurrency: 3,
+      // The gateway serializes generations, so a wider pool buys no throughput
+      // and only stretches the tail latency of the slowest scene.
+      concurrency: 1,
       onStart: ({ id }) =>
         setSceneAgentRuns((prev) =>
           prev.map((run) => (run.id === id ? { ...run, status: "running" } : run))
@@ -1502,11 +1583,30 @@ export function useWorkspaceController(projectId: string) {
     });
 
     const okCount = outcomes.filter((outcome) => outcome.status === "ok").length;
+    let truncatedCount = 0;
+
+    // Assembly is honest about gaps: silently falling back to the seed text made
+    // a chapter of three failed agents read as a finished draft.
     const assembled = scenes
       .map((scene) => {
         const outcome = outcomes.find((item) => item.id === scene.id);
-        const text = outcome?.status === "ok" && outcome.data ? outcome.data : scene.draftText;
-        return text.trim() ? `${sceneLabel(scene)}\n\n${text.trim()}` : "";
+
+        if (!outcome || outcome.status !== "ok" || !outcome.data) {
+          const reason = outcome?.error ?? "the agent did not run";
+          const kept = scene.draftText.trim();
+          const marker = `[SCENE NOT GENERATED — ${reason}]`;
+          return kept
+            ? `${sceneLabel(scene)}\n\n${marker}\n${kept}`
+            : `${sceneLabel(scene)}\n\n${marker}`;
+        }
+
+        const text = outcome.data.text.trim();
+        if (!text) return "";
+        if (outcome.data.truncated) {
+          truncatedCount += 1;
+          return `${sceneLabel(scene)}\n\n[SCENE INCOMPLETE — the model hit its token limit]\n${text}`;
+        }
+        return `${sceneLabel(scene)}\n\n${text}`;
       })
       .filter(Boolean)
       .join("\n\n");
@@ -1514,9 +1614,17 @@ export function useWorkspaceController(projectId: string) {
     setChapterDraftPreview(assembled);
     const failed = outcomes.length - okCount;
     setChapterDraftConcurrentStatus(failed > 0 ? "error" : "idle");
-    setChapterDraftAiMessage(
-      t("draft.concurrentDone", { ok: okCount, total: scenes.length })
-    );
+    const summary = t("draft.concurrentDone", { ok: okCount, total: scenes.length });
+    const notes: string[] = [];
+    if (failed > 0) {
+      notes.push(
+        `${failed} scene${failed > 1 ? "s" : ""} failed and ${failed > 1 ? "are" : "is"} marked in the preview; their existing card text was left untouched.`
+      );
+    }
+    if (truncatedCount > 0) {
+      notes.push(`${truncatedCount} scene${truncatedCount > 1 ? "s were" : " was"} cut off by the token limit.`);
+    }
+    setChapterDraftAiMessage([summary, ...notes].join(" "));
   }
 
   /** Re-run a single failed/edited scene agent (checkpoint recovery). */
@@ -1623,29 +1731,66 @@ export function useWorkspaceController(projectId: string) {
 
     const existingScenes = selectedScenes.slice().sort((a, b) => a.order - b.order);
 
-    for (const [index, suggestion] of sceneCardsPreview.entries()) {
-      const existing = existingScenes[index];
+    // Match on a stable identity (normalized title) instead of array position:
+    // a short or reordered model response used to slide every suggestion onto
+    // the wrong card and overwrite finished prose with beat seeds.
+    const byTitle = new Map<string, Scene>();
+    for (const scene of existingScenes) {
+      const key = normalizeLookupKey(scene.title);
+      if (key && !byTitle.has(key)) byTitle.set(key, scene);
+    }
+
+    const claimed = new Set<string>();
+    let nextOrder = existingScenes.reduce((max, scene) => Math.max(max, scene.order), 0);
+    let updated = 0;
+    let created = 0;
+    let keptDrafts = 0;
+
+    for (const suggestion of sceneCardsPreview) {
+      const key = normalizeLookupKey(suggestion.title);
+      const match = key ? byTitle.get(key) : undefined;
+      const existing = match && !claimed.has(match.id) ? match : undefined;
       const timestamp = new Date().toISOString();
+
+      if (existing) {
+        claimed.add(existing.id);
+        updated += 1;
+      } else {
+        created += 1;
+        nextOrder += 1;
+      }
+
+      // A card suggestion carries beat-level seed text; it must never replace
+      // prose the author (or a scene agent) already wrote.
+      const existingDraft = existing?.draftText ?? "";
+      if (existingDraft.trim() && suggestion.draftText && suggestion.draftText !== existingDraft) {
+        keptDrafts += 1;
+      }
 
       await saveScene({
         id: existing?.id ?? createId("scene"),
         projectId: projectIdValue,
         chapterId: selectedChapter.id,
-        order: index + 1,
+        order: existing?.order ?? nextOrder,
         title: suggestion.title || existing?.title || "",
         description: suggestion.description || existing?.description || "",
         location: suggestion.location || existing?.location || "",
         characters:
           suggestion.characters.length > 0 ? suggestion.characters : existing?.characters || [],
         notes: suggestion.notes || existing?.notes || "",
-        draftText: suggestion.draftText || existing?.draftText || "",
+        draftText: existingDraft.trim() ? existingDraft : suggestion.draftText || existingDraft,
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt: existing?.updatedAt ?? timestamp,
       });
     }
 
     setSceneCardsPreview(null);
-    setSceneCardsAiMessage("Proposed scene cards were applied to this chapter.");
+    setSceneCardsAiMessage(
+      `${created} scene card${created === 1 ? "" : "s"} created and ${updated} matched by title and updated.` +
+        (keptDrafts > 0
+          ? ` ${keptDrafts} existing scene draft${keptDrafts === 1 ? " was" : "s were"} kept instead of the proposed seed text.`
+          : "")
+    );
   }
 
   function discardSceneCardSuggestions() {
