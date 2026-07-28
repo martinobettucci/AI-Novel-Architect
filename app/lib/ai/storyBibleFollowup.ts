@@ -253,11 +253,60 @@ function extractSection(text: string, label: string, nextLabels: string[]): stri
   return match?.[1]?.trim() ?? "";
 }
 
+/** Every field key the scaffold templates use, lower-cased for lenient matching. */
+const LINE_KEYS = new Set(
+  [
+    "name",
+    "role",
+    "motivation",
+    "arc",
+    "voice",
+    "relationships",
+    "notes",
+    "narrativeStatus",
+    "description",
+    "title",
+    "category",
+    "status",
+    "order",
+    "chapter",
+    "label",
+    "details",
+    "impact",
+    "sourceType",
+    "source",
+    "targetType",
+    "target",
+    "relationType",
+    "intensity",
+  ].map((key) => key.toLowerCase())
+);
+
+function isFieldStart(part: string): boolean {
+  const separatorIndex = part.indexOf(":");
+  if (separatorIndex === -1) return false;
+  return LINE_KEYS.has(part.slice(0, separatorIndex).trim().toLowerCase());
+}
+
+/**
+ * Split a template line on `|`, but only where a known `key:` actually starts.
+ * Splitting on every delimiter truncated any value containing a pipe, dropping
+ * everything after it (`notes: A | B` kept only `A`).
+ */
+function splitFields(line: string): string[] {
+  const fields: string[] = [];
+  line.split("|").forEach((part) => {
+    if (fields.length > 0 && !isFieldStart(part.trim())) {
+      fields[fields.length - 1] = `${fields[fields.length - 1]}|${part}`;
+      return;
+    }
+    fields.push(part);
+  });
+  return fields.map((field) => field.trim());
+}
+
 function parseLine(line: string): Record<string, string> {
-  return line
-    .replace(/^\s*[-*]\s*/, "")
-    .split("|")
-    .map((part) => part.trim())
+  return splitFields(line.replace(/^\s*[-*]\s*/, ""))
     .reduce<Record<string, string>>((accumulator, part) => {
       const separatorIndex = part.indexOf(":");
       if (separatorIndex === -1) {

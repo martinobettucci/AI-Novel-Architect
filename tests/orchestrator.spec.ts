@@ -73,7 +73,7 @@ describe("runChapterOrchestration", () => {
   it("isolates a failing step without aborting the pipeline", async () => {
     const run: StructuredRunner = async (req) => {
       if (req.id === "reconciler") throw new Error("model timeout");
-      return "{}";
+      return req.id === "extractor" ? '{"facts":[]}' : '{"issues":[]}';
     };
     const result = await runChapterOrchestration(bundle(), "c1", DEFAULT_ORCHESTRATION_POLICY, run);
     const reconciler = result.steps.find((s) => s.id === "reconciler");

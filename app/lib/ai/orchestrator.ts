@@ -6,6 +6,7 @@ import {
   buildChapterDeltaInput,
   mapChapterDeltaProposals,
   type DeltaProposal,
+  type DeltaProposalList,
 } from "@/app/lib/ai/canonDeltaAnalysis";
 
 export type OrchestratorStepId =
@@ -129,13 +130,24 @@ function buildReconcilerRequest(
   };
 }
 
-function mapFacts(value: unknown): string {
+/**
+ * Unwrap `{ key: [...] }` (or a bare array) and throw when the payload has a
+ * different shape. A shape mismatch must fail its step: silently mapping it to
+ * an empty result would report a model error as a clean, successful audit.
+ */
+function requireArray(value: unknown, key: string): unknown[] {
   const container =
-    value && typeof value === "object" && "facts" in value
-      ? (value as { facts: unknown }).facts
+    value && typeof value === "object" && key in value
+      ? (value as Record<string, unknown>)[key]
       : value;
-  if (!Array.isArray(container)) return "";
-  return container
+  if (!Array.isArray(container)) {
+    throw new Error(`Expected a JSON object with a \`${key}\` array.`);
+  }
+  return container;
+}
+
+function mapFacts(value: unknown): string {
+  return requireArray(value, "facts")
     .map((item) => (typeof item === "string" ? item : ""))
     .filter(Boolean)
     .map((fact) => `- ${fact}`)
@@ -148,12 +160,7 @@ function mapDiagnostics(
   value: unknown,
   domain: "continuity" | "pov"
 ): OrchestratorDiagnostic[] {
-  const container =
-    value && typeof value === "object" && "issues" in value
-      ? (value as { issues: unknown }).issues
-      : value;
-  if (!Array.isArray(container)) return [];
-  return container
+  return requireArray(value, "issues")
     .map((raw): OrchestratorDiagnostic | null => {
       if (!raw || typeof raw !== "object") return null;
       const record = raw as Record<string, unknown>;
@@ -213,7 +220,7 @@ export async function runChapterOrchestration(
   // 2. The reconciler and the audit agents are independent: run them concurrently.
   interface MiddleResult {
     inputChars: number;
-    proposals?: DeltaProposal[];
+    proposals?: DeltaProposalList;
     diagnostics?: OrchestratorDiagnostic[];
   }
   const middle = policy.steps.filter(
@@ -244,12 +251,16 @@ export async function runChapterOrchestration(
     if (!outcome) continue;
     if (outcome.status === "ok" && outcome.data) {
       if (outcome.data.proposals) {
+        const dropped = outcome.data.proposals.droppedCount;
         proposals = outcome.data.proposals;
         steps.push({
           id: stepId,
           label: STEP_LABEL[stepId],
           status: "ok",
-          detail: `${proposals.length} delta(s) proposé(s)`,
+          // Rejected proposals are reported, never silently absorbed.
+          detail: `${proposals.length} delta(s) proposé(s)${
+            dropped > 0 ? `, ${dropped} rejeté(s) (champ invalide)` : ""
+          }`,
           inputChars: outcome.data.inputChars,
         });
       } else {

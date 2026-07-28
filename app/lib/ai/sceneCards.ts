@@ -61,6 +61,22 @@ function relationshipSummary(
     .join(" ");
 }
 
+/** Raw model text is a last-resort signal only; cap it so prompts cannot balloon. */
+const RAW_FALLBACK_CHARS = 240;
+
+/**
+ * The parsed tracker fields already carry the signal. Re-injecting the whole raw
+ * response duplicates tens of thousands of tokens across chapters and makes every
+ * later call likelier to truncate, so only a short excerpt is used as a fallback.
+ */
+function trackerState(report: ChapterTrackerReport): string {
+  const parsed = report.finalState || report.chapterEvolution || report.previousState;
+  if (parsed) return parsed;
+  const raw = report.rawResponse.trim();
+  if (!raw) return "";
+  return raw.length > RAW_FALLBACK_CHARS ? `${raw.slice(0, RAW_FALLBACK_CHARS)}…` : raw;
+}
+
 function trackerTypeOrder(report: ChapterTrackerReport): number {
   switch (report.trackerType) {
     case "characters":
@@ -101,10 +117,7 @@ function buildCanonSnapshot(bundle: ProjectBundle, chapterNumber: number): strin
   const latestTrackerStateByType = new Map<ChapterTrackerReport["trackerType"], string>();
 
   trackerReportsToCurrent.forEach((report) => {
-    latestTrackerStateByType.set(
-      report.trackerType,
-      report.finalState || report.chapterEvolution || report.previousState || report.rawResponse
-    );
+    latestTrackerStateByType.set(report.trackerType, trackerState(report));
   });
 
   const progressionsToCurrent = bundle.entityProgression
@@ -220,7 +233,6 @@ function buildCanonSnapshot(bundle: ProjectBundle, chapterNumber: number): strin
               `previous=${report.previousState || "none"}`,
               `evolution=${report.chapterEvolution || "none"}`,
               `final=${report.finalState || "none"}`,
-              `raw=${report.rawResponse || "none"}`,
             ].join(" | ")
           )
           .join("\n")}`

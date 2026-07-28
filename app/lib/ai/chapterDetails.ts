@@ -63,7 +63,9 @@ function relationshipSummary(
 function parseObjectives(value: string): string[] {
   const bulletLines = value
     .split("\n")
-    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    // Strip one actual list marker only: a greedy digit class would eat the
+    // leading numbers of objectives like "3 assassins reach the gate".
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim())
     .filter(Boolean);
 
   if (bulletLines.length > 1) {
@@ -81,6 +83,22 @@ function parseObjectives(value: string): string[] {
 
   const single = normalizeValue(value);
   return single ? [single] : [];
+}
+
+/** Raw model text is a last-resort signal only; cap it so prompts cannot balloon. */
+const RAW_FALLBACK_CHARS = 240;
+
+/**
+ * The parsed tracker fields already carry the signal. Re-injecting the whole raw
+ * response duplicates tens of thousands of tokens across chapters and makes every
+ * later call likelier to truncate, so only a short excerpt is used as a fallback.
+ */
+function trackerState(report: ChapterTrackerReport): string {
+  const parsed = report.finalState || report.chapterEvolution || report.previousState;
+  if (parsed) return parsed;
+  const raw = report.rawResponse.trim();
+  if (!raw) return "";
+  return raw.length > RAW_FALLBACK_CHARS ? `${raw.slice(0, RAW_FALLBACK_CHARS)}…` : raw;
 }
 
 function trackerTypeOrder(report: ChapterTrackerReport): number {
@@ -185,10 +203,7 @@ export function buildChapterDetailsAutocompleteInput(
   const latestTrackerStateByType = new Map<ChapterTrackerReport["trackerType"], string>();
 
   trackerReportsToCurrent.forEach((report) => {
-    latestTrackerStateByType.set(
-      report.trackerType,
-      report.finalState || report.chapterEvolution || report.previousState || report.rawResponse
-    );
+    latestTrackerStateByType.set(report.trackerType, trackerState(report));
   });
   const entityRegistry = [
     `Story-wide characters registry: ${compactList(bundle.characters.map((character) => character.name))}`,
@@ -236,7 +251,6 @@ export function buildChapterDetailsAutocompleteInput(
               `previous=${report.previousState || "none"}`,
               `evolution=${report.chapterEvolution || "none"}`,
               `final=${report.finalState || "none"}`,
-              `raw=${report.rawResponse || "none"}`,
             ].join(" | ")
           )
           .join("\n")}`

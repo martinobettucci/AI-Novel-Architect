@@ -24,7 +24,11 @@ export interface AgentOutcome<T> {
 }
 
 export interface AgentPoolOptions<T> {
-  /** Maximum number of agents running at once. Default 3. */
+  /**
+   * Maximum number of agents running at once. Defaults to 1: typical local LLM
+   * backends serialize generations anyway, so fanning out adds no throughput
+   * and only lengthens the tail latency of the last agent.
+   */
   concurrency?: number;
   onStart?: (task: { id: string; label: string }) => void;
   onSettle?: (outcome: AgentOutcome<T>) => void;
@@ -34,7 +38,7 @@ export async function runAgentPool<T>(
   tasks: AgentTask<T>[],
   options: AgentPoolOptions<T> = {}
 ): Promise<AgentOutcome<T>[]> {
-  const concurrency = Math.max(1, options.concurrency ?? 3);
+  const concurrency = Math.max(1, options.concurrency ?? 1);
   const results: AgentOutcome<T>[] = new Array(tasks.length);
   let next = 0;
 

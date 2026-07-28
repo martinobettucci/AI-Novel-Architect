@@ -53,12 +53,21 @@ describe("mapChapterDeltaProposals", () => {
     expect(proposals[0].evidence[0].quote).toContain("password");
   });
 
-  it("falls back to safe defaults for unknown enum values", () => {
-    const [proposal] = mapChapterDeltaProposals([
-      { entityName: "X", after: "Y", entityType: "wat", layer: "nope", confidence: "??" },
+  it("drops proposals whose entityType or layer cannot be resolved", () => {
+    const proposals = mapChapterDeltaProposals([
+      { entityName: "X", after: "Y", entityType: "wat", layer: "endState" },
+      { entityName: "X", after: "Y", entityType: "character", layer: "nope" },
+      { entityName: "X", after: "Y" },
     ]);
-    expect(proposal.entityType).toBe("character");
-    expect(proposal.layer).toBe("endState");
+    expect(proposals).toHaveLength(0);
+    expect(proposals.droppedCount).toBe(3);
+  });
+
+  it("falls back to a weak confidence when the confidence is unknown", () => {
+    const [proposal] = mapChapterDeltaProposals([
+      { entityName: "X", after: "Y", entityType: "location", layer: "endState", confidence: "??" },
+    ]);
+    expect(proposal.entityType).toBe("location");
     expect(proposal.confidence).toBe("weak_inference");
   });
 

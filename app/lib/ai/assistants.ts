@@ -1,4 +1,9 @@
-import type { AiActionType, ProjectBundle, TrackedEntityType } from "@/app/domain/models";
+import type {
+  AiActionType,
+  ChapterTrackerReport,
+  ProjectBundle,
+  TrackedEntityType,
+} from "@/app/domain/models";
 import { buildEntityHistorySnapshot } from "@/app/lib/ai/entityHistory";
 import { computeContinuityConflicts, progressionForEntity } from "@/app/lib/repository";
 
@@ -195,6 +200,22 @@ function timelineRegistry(bundle: ProjectBundle): string {
     : "Timeline registry across full book: none";
 }
 
+/** Raw model text is a last-resort signal only; cap it so prompts cannot balloon. */
+const RAW_FALLBACK_CHARS = 240;
+
+/**
+ * The parsed tracker fields already carry the signal. Re-injecting the whole raw
+ * response duplicates tens of thousands of tokens across chapters and makes every
+ * later call likelier to truncate, so only a short excerpt is used as a fallback.
+ */
+function trackerState(report: ChapterTrackerReport): string {
+  const parsed = report.finalState || report.chapterEvolution || report.previousState;
+  if (parsed) return parsed;
+  const raw = report.rawResponse.trim();
+  if (!raw) return "";
+  return raw.length > RAW_FALLBACK_CHARS ? `${raw.slice(0, RAW_FALLBACK_CHARS)}…` : raw;
+}
+
 function chapterTrackerSnapshot(bundle: ProjectBundle, chapterNumber?: number): string[] {
   const chapterNumbers = chapterNumberMap(bundle);
   const reports = bundle.chapterTrackerReports
@@ -213,10 +234,7 @@ function chapterTrackerSnapshot(bundle: ProjectBundle, chapterNumber?: number): 
   const latestState = new Map<string, string>();
 
   reports.forEach((report) => {
-    latestState.set(
-      report.trackerType,
-      report.finalState || report.chapterEvolution || report.previousState || report.rawResponse
-    );
+    latestState.set(report.trackerType, trackerState(report));
   });
 
   return [
@@ -240,7 +258,6 @@ function chapterTrackerSnapshot(bundle: ProjectBundle, chapterNumber?: number): 
               `previous=${report.previousState || "none"}`,
               `evolution=${report.chapterEvolution || "none"}`,
               `final=${report.finalState || "none"}`,
-              `raw=${report.rawResponse || "none"}`,
             ].join(" | ")
           )
           .join("\n")}`

@@ -18,6 +18,13 @@ export interface DeltaProposal {
   evidence: EvidenceSpan[];
 }
 
+/**
+ * Mapped proposals plus how many raw entries were rejected. The value is a real
+ * array so every caller keeps working; the count rides along non-enumerably for
+ * callers that want to surface "n proposals were dropped".
+ */
+export type DeltaProposalList = DeltaProposal[] & { droppedCount: number };
+
 const ENTITY_TYPES: Array<DeltaProposal["entityType"]> = [
   "character",
   "location",
@@ -120,6 +127,11 @@ function oneOf<T extends string>(value: unknown, allowed: T[], fallback: T): T {
   return typeof value === "string" && (allowed as string[]).includes(value) ? (value as T) : fallback;
 }
 
+/** Same as `oneOf` but reports "unresolvable" instead of inventing a value. */
+function strictOneOf<T extends string>(value: unknown, allowed: T[]): T | null {
+  return typeof value === "string" && (allowed as string[]).includes(value) ? (value as T) : null;
+}
+
 function mapEvidence(value: unknown): EvidenceSpan[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -137,7 +149,7 @@ function mapEvidence(value: unknown): EvidenceSpan[] {
 }
 
 /** Validate and normalize the model's JSON into typed delta proposals. */
-export function mapChapterDeltaProposals(value: unknown): DeltaProposal[] {
+export function mapChapterDeltaProposals(value: unknown): DeltaProposalList {
   const container =
     value && typeof value === "object" && "deltas" in value
       ? (value as { deltas: unknown }).deltas
@@ -147,18 +159,32 @@ export function mapChapterDeltaProposals(value: unknown): DeltaProposal[] {
     throw new Error("Expected a JSON object with a `deltas` array.");
   }
 
-  return container
+  let droppedCount = 0;
+  const drop = (): null => {
+    droppedCount += 1;
+    return null;
+  };
+
+  const proposals = container
     .map((raw): DeltaProposal | null => {
-      if (!raw || typeof raw !== "object") return null;
+      if (!raw || typeof raw !== "object") return drop();
       const record = raw as Record<string, unknown>;
       const entityName = asString(record.entityName).trim();
       const after = asString(record.after).trim();
-      if (!entityName || !after) return null;
+      if (!entityName || !after) return drop();
+
+      // Defaulting an unresolvable enum mislabels the delta instead of losing it:
+      // a "place" filed as a character silently vanishes when the character
+      // lookup fails, and an unknown layer gets persisted as a state change.
+      // Rejecting keeps the proposal list honest.
+      const entityType = strictOneOf(record.entityType, ENTITY_TYPES);
+      const layer = strictOneOf(record.layer, LAYERS);
+      if (!entityType || !layer) return drop();
 
       return {
-        entityType: oneOf(record.entityType, ENTITY_TYPES, "character"),
+        entityType,
         entityName,
-        layer: oneOf(record.layer, LAYERS, "endState"),
+        layer,
         before: asString(record.before),
         after,
         confidence: oneOf(record.confidence, CONFIDENCES, "weak_inference"),
@@ -167,4 +193,9 @@ export function mapChapterDeltaProposals(value: unknown): DeltaProposal[] {
       };
     })
     .filter((item): item is DeltaProposal => item !== null);
+
+  return Object.defineProperty(proposals, "droppedCount", {
+    value: droppedCount,
+    enumerable: false,
+  }) as DeltaProposalList;
 }

@@ -18,6 +18,34 @@ function normalizeValue(value: string): string {
     .replace(/["']+$/, "");
 }
 
+/** Values a model emits when it has nothing to say; they must not replace canon. */
+const PLACEHOLDER_VALUES = new Set([
+  "none",
+  "n/a",
+  "na",
+  "tbd",
+  "todo",
+  "unknown",
+  "unspecified",
+  "aucun",
+  "aucune",
+  "...",
+  "…",
+  "-",
+]);
+
+/**
+ * Themes replace the author's curated list wholesale, so a degenerate answer is
+ * worse than no answer. A theme may legitimately contain a comma, so comma
+ * splitting is only used when the model kept everything on one line.
+ */
+function parseThemes(value: string): string[] {
+  const parts = /[\n;]/.test(value) ? value.split(/[\n;]/) : value.split(",");
+  return parts
+    .map((theme) => normalizeValue(theme.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")))
+    .filter((theme) => theme.length > 0 && !PLACEHOLDER_VALUES.has(theme.toLocaleLowerCase()));
+}
+
 export function buildStoryBibleSuggestionInput(bundle: ProjectBundle): string {
   const chapterSummaries = bundle.chapters
     .slice()
@@ -90,10 +118,12 @@ export function parseStoryBibleSuggestion(text: string): Partial<StoryBibleSugge
   }
 
   if (values.Themes) {
-    parsed.themes = values.Themes
-      .split(/[,\n;]/)
-      .map((theme) => normalizeValue(theme))
-      .filter(Boolean);
+    const themes = parseThemes(values.Themes);
+    // Skip the field entirely when nothing usable is left: `Themes: none` must
+    // not overwrite a curated theme list with `["none"]`.
+    if (themes.length > 0) {
+      parsed.themes = themes;
+    }
   }
 
   if (values.Stakes) {

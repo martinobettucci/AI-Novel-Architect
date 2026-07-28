@@ -63,11 +63,46 @@ function titleCaseTrackerType(type: ChapterTrackerType): string {
   }
 }
 
+/** Every field key the Entity History template uses, lower-cased for lenient matching. */
+const LINE_KEYS = new Set(
+  [
+    "entityType",
+    "entity",
+    "label",
+    "note",
+    "sourceType",
+    "source",
+    "targetType",
+    "target",
+    "relationType",
+  ].map((key) => key.toLowerCase())
+);
+
+function isFieldStart(part: string): boolean {
+  const separatorIndex = part.indexOf(":");
+  if (separatorIndex === -1) return false;
+  return LINE_KEYS.has(part.slice(0, separatorIndex).trim().toLowerCase());
+}
+
+/**
+ * Split an Entity History line on `|`, but only where a known `key:` actually
+ * starts. Splitting on every delimiter truncated any value containing a pipe,
+ * dropping everything after it (`note: A | B` kept only `A`).
+ */
+function splitFields(line: string): string[] {
+  const fields: string[] = [];
+  line.split("|").forEach((part) => {
+    if (fields.length > 0 && !isFieldStart(part.trim())) {
+      fields[fields.length - 1] = `${fields[fields.length - 1]}|${part}`;
+      return;
+    }
+    fields.push(part);
+  });
+  return fields.map((field) => field.trim());
+}
+
 function parseLine(line: string): Record<string, string> {
-  return line
-    .replace(/^\s*[-*]\s*/, "")
-    .split("|")
-    .map((part) => part.trim())
+  return splitFields(line.replace(/^\s*[-*]\s*/, ""))
     .reduce<Record<string, string>>((accumulator, part) => {
       const separatorIndex = part.indexOf(":");
       if (separatorIndex === -1) {
@@ -403,9 +438,15 @@ export function parseEntityHistorySuggestion(
             ].join(" ")
           : entry.entity || entry.label || "";
 
+      const entityId = resolveEntityId(bundle, entityType, entry);
+      // An entry the registry could not resolve would be persisted with an empty
+      // id and then render through the label fallback, looking linked to canon
+      // when it is not. Reject it instead of storing a dangling reference.
+      if (!entityId) return null;
+
       return {
         entityType,
-        entityId: resolveEntityId(bundle, entityType, entry),
+        entityId,
         label,
         note: entry.note ?? "",
       };
